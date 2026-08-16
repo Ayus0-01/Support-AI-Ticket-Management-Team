@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { User, UserCheck, ShieldCheck } from 'lucide-react';
 
 interface SignUpPageProps {
   onNavigate: (page: string) => void;
@@ -134,17 +135,50 @@ export default function SignUpPage({ onNavigate }: SignUpPageProps) {
             Account type
           </label>
 
-          <select
-            value={role}
-            onChange={e =>
-              setRole(e.target.value as 'User' | 'Agent' | 'Admin')
-            }
-            className="w-full rounded-xl border px-3 py-2"
-          >
-            <option value="User">User</option>
-            <option value="Agent">Agent</option>
-            <option value="Admin">Admin</option>
-          </select>
+          <div className="grid grid-cols-3 gap-2.5">
+            <button
+              type="button"
+              onClick={() => setRole('User')}
+              className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                role === 'User'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold'
+                  : isDark
+                  ? 'border-gray-800 bg-gray-900/40 hover:bg-gray-800 text-gray-300'
+                  : 'border-gray-250 bg-slate-50 hover:bg-slate-100 text-gray-600'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>User</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole('Agent')}
+              className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                role === 'Agent'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold'
+                  : isDark
+                  ? 'border-gray-800 bg-gray-900/40 hover:bg-gray-800 text-gray-300'
+                  : 'border-gray-250 bg-slate-50 hover:bg-slate-100 text-gray-600'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Agent</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole('Admin')}
+              className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                role === 'Admin'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm font-semibold'
+                  : isDark
+                  ? 'border-gray-800 bg-gray-900/40 hover:bg-gray-800 text-gray-300'
+                  : 'border-gray-250 bg-slate-50 hover:bg-slate-100 text-gray-600'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </button>
+          </div>
         </div>
 
         {/* Password */}

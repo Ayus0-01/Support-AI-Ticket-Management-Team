@@ -31,6 +31,7 @@ export type Ticket = {
   path?: string | null;
   sla: string | null;
   assignee: string | null;
+  resolution_reply?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -47,5 +48,20 @@ export const getMyTickets = async (): Promise<Ticket[]> => {
 
 export const getTicketDetails = async (ticketId: string): Promise<Ticket> => {
   const response = await api.get(`/api/tickets/${ticketId}/`);
+  return response.data.ticket;
+};
+
+export const getAllTickets = async (): Promise<Ticket[]> => {
+  const response = await api.get("/api/tickets/all/");
+  return response.data.tickets;
+};
+
+export const getTicketSuggestions = async (ticketId: string) => {
+  const response = await api.post(`/api/tickets/${ticketId}/suggest/`);
+  return response.data;
+};
+
+export const processTicket = async (ticketId: string, data: any): Promise<Ticket> => {
+  const response = await api.post(`/api/tickets/${ticketId}/process/`, data);
   return response.data.ticket;
 };

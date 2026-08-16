@@ -25,6 +25,7 @@ export default function SignInPage({ onNavigate }: SignInPageProps) {
   const [loading, setLoading]   = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+
   /* Keep saved state in sync when remember toggle changes */
   useEffect(() => {
     if (!remember) localStorage.removeItem(REMEMBER_KEY);
@@ -58,12 +59,13 @@ export default function SignInPage({ onNavigate }: SignInPageProps) {
   const handleGoogle = () => {
     setGoogleLoading(true);
     setTimeout(async () => {
-
       const ok = await signIn('lakshmipriya', 'Lakshmi@123');
       setGoogleLoading(false);
-      if (ok) {
-        if (remember) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email: 'lakshmipriya@gmail.com', password: 'Lakshmi@123' }));
+      if (ok.success) {
+        if (remember) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email: 'lakshmipriya', password: 'Lakshmi@123' }));
         onNavigate('dashboard');
+      } else {
+        setError(ok.message || "Google Sign-In failed.");
       }
     }, 900);
   };
@@ -80,30 +82,30 @@ export default function SignInPage({ onNavigate }: SignInPageProps) {
         <div className="absolute inset-0 bg-[rgba(255,255,255,0.18)] backdrop-blur-[1px]" />
 
         <div className="relative z-10">
-          <button onClick={() => onNavigate('home')} className="flex items-center gap-2 text-white">
+          <button onClick={() => onNavigate('home')} className="flex items-center gap-2 text-slate-800">
             <img src="/images/logo.png" alt="AITicketPilot logo" className="h-10 w-10 object-contain shrink-0" />
             <div>
-              <p className="font-bold text-base leading-tight text-white">AITicketPilot</p>
-              <p className="text-[9px] font-semibold tracking-widest uppercase text-blue-100 opacity-90">Smarter Support. Faster Resolution.</p>
+              <p className="font-bold text-base leading-tight text-slate-800">AITicketPilot</p>
+              <p className="text-[9px] font-semibold tracking-widest uppercase text-slate-600 opacity-90">Smarter Support. Faster Resolution.</p>
             </div>
           </button>
         </div>
 
-        <div className="relative z-10 text-white max-w-[700px]">
-          <Sparkles className="w-10 h-10 mb-6 opacity-80" />
-          <h2 className="text-4xl font-bold leading-tight text-white drop-shadow-sm">Resolve tickets faster with your AI copilot.</h2>
-          <p className="mt-4 text-blue-50 text-lg drop-shadow-sm">Smart routing, instant replies, and live analytics — all in one workspace.</p>
+        <div className="relative z-10 text-slate-800 max-w-[700px]">
+          <Sparkles className="w-10 h-10 mb-6 text-slate-700 opacity-80" />
+          <h2 className="text-4xl font-bold leading-tight text-slate-800 drop-shadow-sm">Resolve tickets faster with your AI copilot.</h2>
+          <p className="mt-4 text-slate-700 text-lg drop-shadow-sm">Smart routing, instant replies, and live analytics — all in one workspace.</p>
           <div className="mt-10 space-y-4">
             {['AI-powered ticket routing', 'Instant suggested replies', 'Real-time support analytics'].map(t => (
-              <div key={t} className="flex items-center gap-3 text-blue-50">
-                <ShieldCheck className="w-5 h-5 shrink-0" />
+              <div key={t} className="flex items-center gap-3 text-slate-700 font-semibold">
+                <ShieldCheck className="w-5 h-5 shrink-0 text-slate-600" />
                 <span className="text-sm">{t}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="relative z-10 text-blue-100 text-xs drop-shadow-sm">© 2026 AITicketPilot. All rights reserved.</p>
+        <p className="relative z-10 text-slate-600 text-xs font-semibold drop-shadow-sm">© 2026 AITicketPilot. All rights reserved.</p>
       </div>
 
       {/* ── Right form panel ──────────────────────────────────────── */}
@@ -162,14 +164,14 @@ export default function SignInPage({ onNavigate }: SignInPageProps) {
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Email */}
               <div>
-                <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Email address</label>
+                <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Email address / Username</label>
                 <div className="relative">
                   <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                   <input
-                    type="email"
+                    type="text"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    placeholder="you@example.com"
+                    placeholder="you@example.com or username"
                     className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm outline-none transition-colors focus:border-blue-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-600' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`}
                     required
                   />

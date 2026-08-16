@@ -5,13 +5,15 @@ import Navbar from '@/components/Navbar';
 import LandingPage from '@/pages/LandingPage';
 import SignInPage from '@/pages/SignInPage';
 import SignUpPage from '@/pages/SignUpPage';
-import Dashboard from '@/pages/Dashboard';
+import UserDashboard from '@/pages/user/UserDashboard';
+import AgentDashboard from '@/pages/agent/AgentDashboard';
+import AdminDashboard from '@/pages/admin/AdminDashboard';
 
-type Page = 'home' | 'signin' | 'signup' | 'dashboard';
+type Page = 'home' | 'signin' | 'signup' | 'dashboard' | 'agent-dashboard' | 'admin-dashboard';
 
 function AppContent() {
   const [page, setPage] = useState<Page>('home');
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [dashboardActive, setDashboardActive] = useState<string | undefined>(undefined);
 
   const navigate = (p: string) => {
@@ -25,7 +27,14 @@ function AppContent() {
         return;
       }
       setDashboardActive(sub);
-      setPage('dashboard');
+      
+      if (user?.role === 'Admin') {
+        setPage('admin-dashboard');
+      } else if (user?.role === 'Agent') {
+        setPage('agent-dashboard');
+      } else {
+        setPage('dashboard');
+      }
       return;
     }
 
@@ -35,7 +44,13 @@ function AppContent() {
         setDashboardActive(undefined);
         return;
       }
-      setPage('dashboard');
+      if (user?.role === 'Admin') {
+        setPage('admin-dashboard');
+      } else if (user?.role === 'Agent') {
+        setPage('agent-dashboard');
+      } else {
+        setPage('dashboard');
+      }
       return;
     }
 
@@ -46,8 +61,32 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (page === 'dashboard' && !isAuthenticated) setPage('signin');
-  }, [isAuthenticated, page]);
+    if (isAuthenticated && user) {
+      if (page === 'signin' || page === 'signup' || page === 'home') {
+        if (user.role === 'Admin') {
+          setPage('admin-dashboard');
+        } else if (user.role === 'Agent') {
+          setPage('agent-dashboard');
+        } else {
+          setPage('dashboard');
+        }
+      } else if (page === 'dashboard' && user.role === 'Admin') {
+        setPage('admin-dashboard');
+      } else if (page === 'dashboard' && user.role === 'Agent') {
+        setPage('agent-dashboard');
+      } else if (page === 'agent-dashboard' && user.role === 'Admin') {
+        setPage('admin-dashboard');
+      } else if (page === 'agent-dashboard' && user.role === 'User') {
+        setPage('dashboard');
+      } else if (page === 'admin-dashboard' && user.role !== 'Admin') {
+        setPage(user.role === 'Agent' ? 'agent-dashboard' : 'dashboard');
+      }
+    } else {
+      if (page === 'dashboard' || page === 'agent-dashboard' || page === 'admin-dashboard') {
+        setPage('signin');
+      }
+    }
+  }, [isAuthenticated, user, page]);
 
   if (page === 'signin') {
     return <SignInPage onNavigate={navigate} />;
@@ -56,7 +95,13 @@ function AppContent() {
     return <SignUpPage onNavigate={navigate} />;
   }
   if (page === 'dashboard') {
-    return <Dashboard onNavigate={navigate} initialPage={dashboardActive as any} />;
+    return <UserDashboard onNavigate={navigate} initialTab={dashboardActive as any} />;
+  }
+  if (page === 'agent-dashboard') {
+    return <AgentDashboard onNavigate={navigate} />;
+  }
+  if (page === 'admin-dashboard') {
+    return <AdminDashboard onNavigate={navigate} />;
   }
   return (
     <>

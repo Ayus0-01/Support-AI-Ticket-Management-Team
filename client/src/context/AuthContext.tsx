@@ -113,8 +113,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       console.error("LOGIN ERROR:", error);
       let message = "Invalid email or password.";
-      if (error.response?.data?.message) {
-        message = error.response.data.message;
+      if (error.response) {
+        if (error.response.data?.message) {
+          message = error.response.data.message;
+        } else if (error.response.data?.email) {
+          message = Array.isArray(error.response.data.email) ? error.response.data.email[0] : String(error.response.data.email);
+        } else if (error.response.status === 500) {
+          message = "Internal Server Error (500) from backend.";
+        }
+      } else {
+        message = "Unable to connect to the backend server. Please verify it is running on port 8000.";
       }
       return { success: false, message };
     }
