@@ -70,6 +70,8 @@ const ROLE_CAPABILITIES: Record<
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  authLoading: boolean;
+  can: (capability: Capability) => boolean;
   signIn: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   signOut: () => void;
   register: (
@@ -84,6 +86,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   isAuthenticated: false,
+  authLoading: true,
+  can: () => false,
 
   signIn: async (
     _username: string,
@@ -107,6 +111,14 @@ const AuthContext = createContext<AuthContextType>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const can = (capability: Capability): boolean => {
+    if (!user) {
+      return false;
+    }
+    return ROLE_CAPABILITIES[user.role]?.includes(capability) ?? false;
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -127,7 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error("Auto auth check failed:", err);
           localStorage.removeItem("access");
           localStorage.removeItem("refresh");
+        } finally {
+          setAuthLoading(false);
         }
+      } else {
+        setAuthLoading(false);
       }
     };
     checkAuth();
@@ -243,6 +259,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
+        authLoading,
+        can,
         signIn,
         signOut,
         register,
