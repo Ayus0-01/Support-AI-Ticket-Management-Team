@@ -70,7 +70,6 @@ const ROLE_CAPABILITIES: Record<
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  authLoading: boolean;
   signIn: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   signOut: () => void;
   register: (
@@ -80,13 +79,11 @@ interface AuthContextType {
     mobile: string,
     role: "User" | "Agent" | "Admin"
   ) => Promise<{ success: boolean; message?: string }>;
-  can: (capability: Capability) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   isAuthenticated: false,
-  authLoading: true,
 
   signIn: async (
     _username: string,
@@ -106,54 +103,35 @@ const AuthContext = createContext<AuthContextType>({
 ): Promise<{ success: boolean; message?: string }> => {
   return { success: false };
 },
-  can: () => false,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  
-  const can = (
-    capability: Capability
-): boolean => {
-  if (!user) {
-    return false;
-  }
-
-  return ROLE_CAPABILITIES[user.role].includes(
-    capability
-  );
-};
 
   useEffect(() => {
-  const checkAuth = async () => {
-    const token = localStorage.getItem("access");
-
-    try {
+    const checkAuth = async () => {
+      const token = localStorage.getItem("access");
       if (token && !user) {
-        const meResponse = await api.get("/api/auth/me/");
-        const meData = meResponse.data;
-
-        setUser({
-          name: meData.username,
-          username: meData.username,
-          email: meData.email,
-          mobile: meData.mobile,
-          role: meData.role,
-          avatar: meData.username.charAt(0).toUpperCase(),
-        });
+        try {
+          const meResponse = await api.get("/api/auth/me/");
+          const meData = meResponse.data;
+          setUser({
+            name: meData.username,
+            username: meData.username,
+            email: meData.email,
+            mobile: meData.mobile,
+            role: meData.role,
+            avatar: meData.username.charAt(0).toUpperCase(),
+          });
+        } catch (err) {
+          console.error("Auto auth check failed:", err);
+          localStorage.removeItem("access");
+          localStorage.removeItem("refresh");
+        }
       }
-    } catch (err) {
-      console.error("Auto auth check failed:", err);
-      localStorage.removeItem("access");
-      localStorage.removeItem("refresh");
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  checkAuth();
-}, []);
+    };
+    checkAuth();
+  }, []);
 
   const signIn = async (
     username: string,
@@ -265,8 +243,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
-        authLoading,
-        can,
         signIn,
         signOut,
         register,
