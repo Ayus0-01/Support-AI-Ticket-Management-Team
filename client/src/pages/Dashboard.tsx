@@ -2434,11 +2434,26 @@ useEffect(() => {
     sessionStorage.setItem('dashboardActive', activePage);
   }, [activePage]);
 
+  // Redirect Agent / Admin away from restricted pages (Create Ticket, My Tickets)
+  useEffect(() => {
+    if (activePage === 'Create Ticket' && !can('CREATE_TICKET')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    } else if (activePage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    }
+  }, [activePage, can]);
+
   useEffect(() => {
     if (initialPage) {
-      setActivePage(initialPage);
+      if (initialPage === 'Create Ticket' && !can('CREATE_TICKET')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else if (initialPage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else {
+        setActivePage(initialPage);
+      }
     }
-  }, [initialPage]);
+  }, [initialPage, can]);
 
   // Compute sidebar priority counts from the live dashboard dataset.
   const priorityCounts = homeTickets.reduce((acc: Record<string, number>, ticket) => {
