@@ -1048,12 +1048,14 @@ useEffect(() => {
 
 type ClassificationPreview = {
   category?: {
-    value: string;
+    category?: string;
+    value?: string;
     confidence: number;
     route?: string;
   };
   subcategory?: {
-    value: string;
+    subcategory?: string;
+    value?: string;
     confidence: number;
     route?: string;
   };
@@ -1576,24 +1578,41 @@ function CreateTicketPage({ isDark, onCreated, onOpenTicket, onOpenKnowledgeArti
         </div>
 
         <div className="mt-6 space-y-4">
-          {[
-            ['Category', preview?.category?.value || (previewLoading ? 'Classifying...' : '—')],
-            ['Sub-category', preview?.subcategory?.value || (previewLoading ? 'Classifying...' : '—')],
-            ['Severity', 'Final on submit'],
-            ['Priority', 'Final on submit'],
-            ['Est. first response', 'Final on submit'],
-          ].map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between rounded-2xl border px-4 py-3">
-              <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>{label}</span>
-              <span className="text-sm font-semibold text-slate-900">{value}</span>
-            </div>
-          ))}
+          {(() => {
+            const rawCategory = preview?.category?.category || preview?.category?.value;
+            const rawSubcategory = preview?.subcategory?.subcategory || preview?.subcategory?.value;
+
+            const categoryVal = previewLoading
+              ? 'Classifying...'
+              : rawCategory && rawCategory !== 'UNCLASSIFIED'
+              ? formatCategoryLabel(rawCategory)
+              : '—';
+
+            const subcategoryVal = previewLoading
+              ? 'Classifying...'
+              : rawSubcategory && rawSubcategory !== 'UNCLASSIFIED'
+              ? formatCategoryLabel(rawSubcategory)
+              : '—';
+
+            return [
+              ['Category', categoryVal],
+              ['Sub-category', subcategoryVal],
+              ['Severity', 'Final on submit'],
+              ['Priority', 'Final on submit'],
+              ['Est. first response', 'Final on submit'],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between rounded-2xl border px-4 py-3">
+                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>{label}</span>
+                <span className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</span>
+              </div>
+            ));
+          })()}
         </div>
 
         <div className="mt-6 rounded-2xl bg-slate-100 p-4">
           <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
             <span>Confidence</span>
-            <span>{preview?.category?.confidence ? `${Math.round(preview.category.confidence * 100)}%` : '—'}</span>
+            <span>{previewLoading ? 'Classifying...' : preview?.category?.confidence ? `${Math.round(preview.category.confidence * 100)}%` : '—'}</span>
           </div>
           <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
             <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-blue-500 to-sky-500" style={{ width: `${Math.round((preview?.category?.confidence || 0) * 100)}%` }} />
@@ -2021,11 +2040,26 @@ useEffect(() => {
     sessionStorage.setItem('dashboardActive', activePage);
   }, [activePage]);
 
+  // Redirect Agent / Admin away from restricted pages (Create Ticket, My Tickets)
+  useEffect(() => {
+    if (activePage === 'Create Ticket' && !can('CREATE_TICKET')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    } else if (activePage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    }
+  }, [activePage, can]);
+
   useEffect(() => {
     if (initialPage) {
-      setActivePage(initialPage);
+      if (initialPage === 'Create Ticket' && !can('CREATE_TICKET')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else if (initialPage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else {
+        setActivePage(initialPage);
+      }
     }
-  }, [initialPage]);
+  }, [initialPage, can]);
 
   // Compute sidebar priority counts from the live dashboard dataset.
   const priorityCounts = homeTickets.reduce((acc: Record<string, number>, ticket) => {

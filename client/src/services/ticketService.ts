@@ -223,12 +223,14 @@ export type DuplicateCandidate = {
 
 export type ClassificationPreview = {
   category?: {
-    value: string;
+    category?: string;
+    value?: string;
     confidence: number;
     route?: string;
   };
   subcategory?: {
-    value: string;
+    subcategory?: string;
+    value?: string;
     confidence: number;
     route?: string;
   };
