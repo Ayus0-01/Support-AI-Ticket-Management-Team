@@ -67,12 +67,6 @@ def login_service(data):
             "message": "User does not exist."
         }
 
-    if user.get("status") == "Inactive":
-        return {
-            "success": False,
-            "message": "Your account has been deactivated. Please contact the administrator."
-        }
-
     if not check_password(
         data["password"],
         user["password"]

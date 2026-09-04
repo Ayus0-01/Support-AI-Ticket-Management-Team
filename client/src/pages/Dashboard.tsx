@@ -21,13 +21,6 @@ import {
 } from "../services/ticketService";
 
 import {
-  getUsers,
-  createUser,
-  updateUser,
-  AdminUser,
-} from "../services/userService";
-
-import {
   Bot, Sun, Moon, LayoutDashboard, Ticket, PlusCircle, Sparkles, BarChart3,
   BookOpen, Users, Settings, LogOut, Search, Bell, HelpCircle, MessageSquare,
   Send, ChevronRight, Tag, Menu, X, Ticket as TicketIcon,
@@ -1662,454 +1655,48 @@ function ReportsPage({ isDark }: { isDark: boolean }) {
 }
 
 function UsersPage({ isDark }: { isDark: boolean }) {
-  const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  
-  const [searchTerm, setSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState("All roles");
-  const [statusFilter, setStatusFilter] = useState("All statuses");
-
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createUsername, setCreateUsername] = useState("");
-  const [createEmail, setCreateEmail] = useState("");
-  const [createMobile, setCreateMobile] = useState("");
-  const [createPassword, setCreatePassword] = useState("");
-  const [createRole, setCreateRole] = useState<"User" | "Agent" | "Admin">("User");
-  const [createStatus, setCreateStatus] = useState<"Active" | "Inactive">("Active");
-  const [createError, setCreateError] = useState("");
-  const [createBusy, setCreateBusy] = useState(false);
-
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState("");
-
-  const loadUsers = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await getUsers();
-      setUsers(data);
-    } catch (err: any) {
-      console.error("Failed to load users:", err);
-      setError(err?.message || "Could not load users from database.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateError("");
-
-    if (!createUsername.trim() || !createEmail.trim() || !createPassword.trim()) {
-      setCreateError("Please fill in all required fields.");
-      return;
-    }
-
-    if (createPassword.length < 8) {
-      setCreateError("Password must be at least 8 characters long.");
-      return;
-    }
-
-    try {
-      setCreateBusy(true);
-      await createUser({
-        username: createUsername.trim(),
-        email: createEmail.trim(),
-        mobile: createMobile.trim() || undefined,
-        password: createPassword,
-        role: createRole,
-        status: createStatus,
-      });
-
-      setCreateUsername("");
-      setCreateEmail("");
-      setCreateMobile("");
-      setCreatePassword("");
-      setCreateRole("User");
-      setCreateStatus("Active");
-      setIsCreateOpen(false);
-      
-      await loadUsers();
-    } catch (err: any) {
-      console.error("Failed to create user:", err);
-      const msg = err.response?.data?.message || err.message || "Failed to create user.";
-      if (err.response?.data && typeof err.response.data === "object") {
-        const keys = Object.keys(err.response.data);
-        if (keys.length > 0 && keys[0] !== "message") {
-          const field = keys[0];
-          const errorMsg = err.response.data[field];
-          setCreateError(`${field}: ${Array.isArray(errorMsg) ? errorMsg[0] : errorMsg}`);
-          return;
-        }
-      }
-      setCreateError(msg);
-    } finally {
-      setCreateBusy(false);
-    }
-  };
-
-  const handleUpdateStatus = async (targetUser: AdminUser, newStatus: "Active" | "Inactive") => {
-    setActionError("");
-    
-    if (targetUser.username === currentUser?.username && newStatus === "Inactive") {
-      const activeAdmins = users.filter(u => u.role === "Admin" && u.status !== "Inactive");
-      if (activeAdmins.length <= 1) {
-        setActionError("Cannot deactivate yourself as you are the only remaining Admin account.");
-        return;
-      }
-      if (!window.confirm("Are you sure you want to deactivate your own account? You will be logged out immediately.")) {
-        return;
-      }
-    }
-
-    try {
-      setActionBusy(targetUser.id);
-      await updateUser(targetUser.id, { status: newStatus });
-      await loadUsers();
-      
-      if (targetUser.username === currentUser?.username && newStatus === "Inactive") {
-        window.location.reload();
-      }
-    } catch (err: any) {
-      console.error("Failed to update status:", err);
-      setActionError(err.response?.data?.message || err.message || "Failed to update account status.");
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
-  const handleUpdateRole = async (targetUser: AdminUser, newRole: "User" | "Agent" | "Admin") => {
-    setActionError("");
-
-    if (targetUser.username === currentUser?.username && newRole !== "Admin") {
-      const activeAdmins = users.filter(u => u.role === "Admin" && u.status !== "Inactive");
-      if (activeAdmins.length <= 1) {
-        setActionError("Cannot demote yourself as you are the only remaining Admin account.");
-        return;
-      }
-      if (!window.confirm("Are you sure you want to remove your own Admin role? You will lose admin privileges immediately.")) {
-        return;
-      }
-    }
-
-    try {
-      setActionBusy(targetUser.id);
-      await updateUser(targetUser.id, { role: newRole });
-      await loadUsers();
-      
-      if (targetUser.username === currentUser?.username && newRole !== "Admin") {
-        window.location.reload();
-      }
-    } catch (err: any) {
-      console.error("Failed to update role:", err);
-      setActionError(err.response?.data?.message || err.message || "Failed to update user role.");
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
-  const filteredUsers = users.filter(u => {
-    const matchesSearch = 
-      !searchTerm.trim() ||
-      u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (u.mobile && u.mobile.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    const matchesRole = 
-      roleFilter === "All roles" ||
-      u.role === roleFilter;
-
-    const matchesStatus =
-      statusFilter === "All statuses" ||
-      u.status === statusFilter;
-
-    return matchesSearch && matchesRole && matchesStatus;
-  });
-
-  const fieldClass = `w-full rounded-2xl border px-3 py-2 text-sm outline-none transition-colors focus:border-blue-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`;
-  const selectFilterClass = `rounded-2xl border px-3 py-2 text-sm outline-none transition-colors focus:border-blue-500 ${isDark ? 'bg-gray-900 border-gray-800 text-white' : 'bg-white border-gray-200 text-slate-700'}`;
-
+  const users = [
+    {
+      name: 'Current User',
+      email: 'user@example.com',
+      avatar: 'U',
+      role: 'User',
+      tickets: 0,
+    },
+  ];
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>User Management</h2>
-          <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>View and manage application logins and roles</p>
-        </div>
-        <button
-          onClick={() => { setCreateError(""); setIsCreateOpen(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-full shadow transition"
-        >
-          Add User
-        </button>
+      <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Users</h2>
+      <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+              {['User', 'Role', 'Tickets Assigned'].map(h => (
+                <th key={h} className={`text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDark ? 'divide-gray-800' : 'divide-gray-100'}`}>
+            {users.map(u => (
+              <tr key={u.email} className={isDark ? 'hover:bg-gray-800/60' : 'hover:bg-gray-50'}>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold">{u.avatar}</div>
+                    <div>
+                      <p className={`font-medium text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{u.name}</p>
+                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>{u.email}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'Admin' ? isDark ? 'bg-blue-500/15 text-blue-400' : 'bg-blue-100 text-blue-600' : isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>
+                </td>
+                <td className={`px-4 py-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{u.tickets ?? 0}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-
-      {actionError && (
-        <div className={`p-4 rounded-2xl border flex items-center gap-3 ${isDark ? 'bg-red-950/20 border-red-500/20 text-red-400' : 'bg-red-50 border-red-200 text-red-700'}`}>
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <p className="text-sm">{actionError}</p>
-        </div>
-      )}
-
-      <div className={`rounded-3xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-        <div className="border-b px-5 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex flex-1 flex-col sm:flex-row items-center gap-3 w-full">
-            <div className={`relative rounded-2xl ${isDark ? 'bg-gray-950' : 'bg-slate-50'} flex items-center px-4 py-2 w-full max-w-md`}>
-              <Search className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-              <input
-                type="search"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Search username, email, mobile..."
-                className={`ml-3 w-full bg-transparent text-sm outline-none ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-500'}`}
-              />
-            </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <select
-                value={roleFilter}
-                onChange={e => setRoleFilter(e.target.value)}
-                className={selectFilterClass}
-              >
-                {['All roles', 'User', 'Agent', 'Admin'].map(role => (
-                  <option key={role}>{role}</option>
-                ))}
-              </select>
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                className={selectFilterClass}
-              >
-                {['All statuses', 'Active', 'Inactive'].map(status => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <button
-            onClick={() => { setSearchTerm(''); setRoleFilter('All roles'); setStatusFilter('All statuses'); setActionError(""); }}
-            className="w-full md:w-auto inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-transparent px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Clear
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          {loading ? (
-            <p className="text-center py-8 text-sm text-gray-500">Loading users from database...</p>
-          ) : error ? (
-            <p className="text-center py-8 text-sm text-red-500">{error}</p>
-          ) : filteredUsers.length === 0 ? (
-            <p className="text-center py-8 text-sm text-gray-500">No users match the search criteria.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className={isDark ? 'bg-gray-800/50 border-b border-gray-800' : 'bg-gray-50 border-b border-gray-100'}>
-                  {['User', 'Mobile', 'Role', 'Status', 'Actions'].map(h => (
-                    <th key={h} className={`text-left px-5 py-3.5 text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDark ? 'divide-gray-800' : 'divide-gray-100'}`}>
-                {filteredUsers.map(u => {
-                  const isCurrent = u.username === currentUser?.username;
-                  const isBusy = actionBusy === u.id;
-
-                  return (
-                    <tr key={u.id} className={isDark ? 'hover:bg-gray-800/40' : 'hover:bg-gray-50'}>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                            {u.username.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{u.username}</p>
-                              {isCurrent && (
-                                <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">You</span>
-                              )}
-                            </div>
-                            <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className={`px-5 py-4 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {u.mobile || "—"}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          u.role === 'Admin' 
-                            ? isDark ? 'bg-blue-500/15 text-blue-400' : 'bg-blue-100 text-blue-600'
-                            : u.role === 'Agent'
-                            ? isDark ? 'bg-purple-500/15 text-purple-400' : 'bg-purple-100 text-purple-600'
-                            : isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          u.status === 'Active'
-                            ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-100 text-emerald-600'
-                            : isDark ? 'bg-red-500/15 text-red-400' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {u.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <select
-                            disabled={isBusy}
-                            value={u.role}
-                            onChange={e => handleUpdateRole(u, e.target.value as any)}
-                            className={`rounded border px-2 py-1 text-xs outline-none bg-transparent ${
-                              isDark ? 'border-gray-700 text-gray-300 focus:border-blue-500 bg-gray-950' : 'border-gray-300 text-gray-700 focus:border-blue-500 bg-white'
-                            }`}
-                          >
-                            <option value="User">User</option>
-                            <option value="Agent">Agent</option>
-                            <option value="Admin">Admin</option>
-                          </select>
-
-                          <button
-                            disabled={isBusy}
-                            onClick={() => handleUpdateStatus(u, u.status === 'Active' ? 'Inactive' : 'Active')}
-                            className={`px-3 py-1 rounded text-xs font-medium transition ${
-                              u.status === 'Active'
-                                ? 'bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-950/40 dark:text-red-400'
-                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 dark:text-emerald-400'
-                            }`}
-                          >
-                            {isBusy ? "Updating..." : u.status === 'Active' ? "Deactivate" : "Activate"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className={`w-full max-w-md p-6 rounded-3xl border shadow-xl space-y-4 ${
-            isDark ? 'bg-gray-900 border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-900'
-          }`}>
-            <div className="flex items-center justify-between border-b pb-3 border-gray-200 dark:border-gray-800">
-              <h3 className="text-lg font-bold">Add New User</h3>
-              <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {createError && (
-              <p className="text-sm text-red-500 border border-red-500/20 bg-red-500/10 px-3 py-2 rounded-xl">{createError}</p>
-            )}
-
-            <form onSubmit={handleCreateUser} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Username *</label>
-                <input
-                  type="text"
-                  required
-                  value={createUsername}
-                  onChange={e => setCreateUsername(e.target.value)}
-                  placeholder="e.g. john_doe"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Email *</label>
-                <input
-                  type="email"
-                  required
-                  value={createEmail}
-                  onChange={e => setCreateEmail(e.target.value)}
-                  placeholder="e.g. john@example.com"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Mobile Number</label>
-                <input
-                  type="text"
-                  value={createMobile}
-                  onChange={e => setCreateMobile(e.target.value)}
-                  placeholder="e.g. 9876543210"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Password (min 8 chars) *</label>
-                <input
-                  type="password"
-                  required
-                  value={createPassword}
-                  onChange={e => setCreatePassword(e.target.value)}
-                  placeholder="••••••••"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Role</label>
-                  <select
-                    value={createRole}
-                    onChange={e => setCreateRole(e.target.value as any)}
-                    className={fieldClass}
-                  >
-                    <option value="User">User</option>
-                    <option value="Agent">Agent</option>
-                    <option value="Admin">Admin</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold mb-1 uppercase tracking-wider text-gray-500">Initial Status</label>
-                  <select
-                    value={createStatus}
-                    onChange={e => setCreateStatus(e.target.value as any)}
-                    className={fieldClass}
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-800">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateOpen(false)}
-                  className={`px-4 py-2 text-sm font-semibold rounded-full border transition ${
-                    isDark ? 'border-gray-700 hover:bg-gray-800 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createBusy}
-                  className="px-4 py-2 text-sm font-semibold rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow transition"
-                >
-                  {createBusy ? "Creating..." : "Save User"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2522,15 +2109,7 @@ useEffect(() => {
       case 'AI Assistant':  return <AIAssistantPage isDark={isDark} chat={aiChat} setChat={setAiChat} />;
       case 'Reports':       return <ReportsPage isDark={isDark} />;
       case 'Knowledge Base':return <KnowledgeBaseWorkspace isDark={isDark} initialArticleId={knowledgeArticleId} />;
-      case 'Users':
-        if (!can('MANAGE_USERS')) {
-          return (
-            <div className="p-6 text-red-500 font-semibold text-center">
-              Access Denied: You do not have permission to access the User Management panel.
-            </div>
-          );
-        }
-        return <UsersPage isDark={isDark} />;
+      case 'Users':         return <UsersPage isDark={isDark} />;
       case 'Settings':      return <SettingsPage isDark={isDark} toggleTheme={toggleTheme} />;
       case 'Taxonomy':      return <TaxonomyPage isDark={isDark} />;
       case 'SLA policies':  return <SLAPoliciesPage isDark={isDark} />;
