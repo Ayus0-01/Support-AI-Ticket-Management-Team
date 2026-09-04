@@ -23,42 +23,17 @@ class LoginSerializer(serializers.Serializer):
 
 class AdminUserResponseSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
-    username = serializers.SerializerMethodField()
-    email = serializers.SerializerMethodField()
-    mobile = serializers.SerializerMethodField()
-    role = serializers.SerializerMethodField()
+    username = serializers.CharField()
+    email = serializers.EmailField()
+    mobile = serializers.CharField(required=False, allow_blank=True)
+    role = serializers.CharField()
     status = serializers.SerializerMethodField()
 
     def get_id(self, obj):
-        if isinstance(obj, dict):
-            return str(obj.get("_id", ""))
-        return str(getattr(obj, "_id", getattr(obj, "id", "")))
-
-    def get_username(self, obj):
-        if isinstance(obj, dict):
-            return obj.get("username") or ""
-        return getattr(obj, "username", "") or ""
-
-    def get_email(self, obj):
-        if isinstance(obj, dict):
-            return obj.get("email") or ""
-        return getattr(obj, "email", "") or ""
-
-    def get_mobile(self, obj):
-        if isinstance(obj, dict):
-            return obj.get("mobile") or ""
-        return getattr(obj, "mobile", "") or ""
-
-    def get_role(self, obj):
-        if isinstance(obj, dict):
-            return obj.get("role") or "User"
-        return getattr(obj, "role", "User") or "User"
+        return str(obj.get("_id", ""))
 
     def get_status(self, obj):
-        if isinstance(obj, dict):
-            return obj.get("status") or "Active"
-        return getattr(obj, "status", "Active") or "Active"
-
+        return obj.get("status", "Active")
 
 
 class AdminCreateUserSerializer(serializers.Serializer):

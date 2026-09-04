@@ -217,14 +217,9 @@ def admin_users_view(request):
         return err_response
 
     if request.method == "GET":
-        try:
-            users = list(users_collection.find())
-            serializer = AdminUserResponseSerializer(users, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            print("Error listing users:", e)
-            return Response({"message": f"Failed to retrieve users: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        users = list(users_collection.find())
+        serializer = AdminUserResponseSerializer(users, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     elif request.method == "POST":
         serializer = AdminCreateUserSerializer(data=request.data)
