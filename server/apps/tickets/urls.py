@@ -19,6 +19,7 @@ from .views import (
     edit_send_resolution_view,
     reject_resolution_view,
     resolution_feedback_view,
+    send_manual_resolution_view,
 )
 
 
@@ -104,6 +105,12 @@ urlpatterns = [
         "<str:ticket_id>/generate-resolution/",
         generate_resolution_view,
         name="generate-resolution",
+    ),
+
+    path(
+        "<str:ticket_id>/manual-resolution/",
+        send_manual_resolution_view,
+        name="send-manual-resolution",
     ),
 
     path(

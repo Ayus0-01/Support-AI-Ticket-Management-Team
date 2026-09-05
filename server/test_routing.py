@@ -24,9 +24,9 @@ for category, expected_team in tests:
     actual_team = route_ticket(category)
 
     print(
-        f"{category:15} → "
+        f"{category:15} -> "
         f"{actual_team:25} "
-        f"{'✓' if actual_team == expected_team else '✗'}"
+        f"{'[PASS]' if actual_team == expected_team else '[FAIL]'}"
     )
 
     assert actual_team == expected_team

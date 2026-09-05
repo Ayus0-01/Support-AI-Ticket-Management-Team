@@ -55,4 +55,8 @@ class AgentQueueViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["tickets"][0]["ticket_id"], "TKT-QUEUE-001")
         self.assertEqual(response.data["tickets"][0]["priority"], "P2")
-        self.assertNotIn("latest_response_id", response.data["tickets"][0])
+        self.assertIsInstance(
+            response.data["tickets"][0]["latest_response_id"],
+            str,
+        )
+

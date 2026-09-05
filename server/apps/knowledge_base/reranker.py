@@ -9,15 +9,17 @@ from transformers import (
 MODEL_NAME = "BAAI/bge-reranker-v2-m3"
 
 
-_tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_NAME
-)
+_tokenizer = None
+_model = None
 
-_model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_NAME
-)
 
-_model.eval()
+def _get_reranker():
+    global _tokenizer, _model
+    if _tokenizer is None or _model is None:
+        _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        _model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+        _model.eval()
+    return _tokenizer, _model
 
 
 def _score_pair(
@@ -28,8 +30,8 @@ def _score_pair(
     Compute the raw reranker score for one
     query/document pair.
     """
-
-    inputs = _tokenizer(
+    tokenizer, model = _get_reranker()
+    inputs = tokenizer(
         query,
         document,
         padding=True,
@@ -40,7 +42,7 @@ def _score_pair(
 
     with torch.no_grad():
         score = (
-            _model(**inputs)
+            model(**inputs)
             .logits
             .view(-1)
             .float()
@@ -48,6 +50,7 @@ def _score_pair(
         )
 
     return score
+
 
 
 def rerank_results(

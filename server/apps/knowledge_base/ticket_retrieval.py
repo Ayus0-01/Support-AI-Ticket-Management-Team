@@ -1,6 +1,7 @@
 from .query_builder import build_search_queries
 from .retrieval import multi_query_hybrid_search
 from .packing import pack_context
+from .reranker import _get_reranker
 
 
 def retrieve_for_ticket(
@@ -16,6 +17,7 @@ def retrieve_for_ticket(
     Run the complete M2 retrieval pipeline for a
     stored support ticket.
     """
+    _get_reranker()
 
     subject = ticket.get(
         "subject",

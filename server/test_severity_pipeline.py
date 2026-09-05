@@ -4,7 +4,7 @@ from apps.tickets.classification.priority import calculate_priority
 
 
 print("\n" + "=" * 70)
-print("TEST 1 — SEVERITY MODEL")
+print("TEST 1 - SEVERITY MODEL")
 print("=" * 70)
 
 result = predict_severity(
@@ -19,7 +19,7 @@ print(result)
 
 
 print("\n" + "=" * 70)
-print("TEST 2 — SEVERITY OVERRIDE")
+print("TEST 2 - SEVERITY OVERRIDE")
 print("=" * 70)
 
 result = apply_severity_overrides(
@@ -36,7 +36,7 @@ print(result)
 
 
 print("\n" + "=" * 70)
-print("TEST 3 — PRIORITY")
+print("TEST 3 - PRIORITY")
 print("=" * 70)
 
 priority = calculate_priority(
@@ -48,7 +48,7 @@ print("Priority:", priority)
 
 
 print("\n" + "=" * 70)
-print("TEST 4 — FULL SEVERITY → OVERRIDE → PRIORITY")
+print("TEST 4 - FULL SEVERITY -> OVERRIDE -> PRIORITY")
 print("=" * 70)
 
 model_result = predict_severity(

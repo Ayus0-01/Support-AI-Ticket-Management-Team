@@ -34,4 +34,9 @@ urlpatterns = [
         "api/knowledge/",
         include("apps.knowledge_base.urls"),
     ),
+
+    path(
+        "api/agents/",
+        include("apps.agents.urls"),
+    ),
 ]

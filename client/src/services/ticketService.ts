@@ -56,6 +56,8 @@ export type Ticket = {
   queue?: string | null;
   classification?: Record<string, any> | null;
   resolution?: { summary?: string; resolved_at?: string } | null;
+  resolution_status?: string;
+  latest_response_id?: string;
   affected_scope?: string;
   work_blocked?: string;
   urgent_feeling?: string;

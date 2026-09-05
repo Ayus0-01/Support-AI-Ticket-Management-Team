@@ -111,6 +111,13 @@ class EmployeeTicketSerializer(serializers.Serializer):
             "resolved_at": resolution.get("resolved_at"),
         }
 
+    resolution_status = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        required=False,
+    )
+    latest_response_id = serializers.SerializerMethodField()
+
     severity = serializers.CharField(allow_null=True, required=False)
     priority = serializers.SerializerMethodField()
     sla = serializers.DictField(allow_null=True, required=False)
@@ -124,6 +131,12 @@ class EmployeeTicketSerializer(serializers.Serializer):
         if isinstance(priority, dict):
             return priority.get("value")
         return priority
+
+    def get_latest_response_id(self, obj):
+        val = obj.get("latest_response_id")
+        if not val:
+            return None
+        return str(val)
 
 
 class ClassificationOverrideSerializer(serializers.Serializer):

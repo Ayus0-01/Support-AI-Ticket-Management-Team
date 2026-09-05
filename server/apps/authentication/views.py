@@ -117,7 +117,7 @@ def me(request):
                 "username": user["username"],
                 "email": user["email"],
                 "mobile": user.get("mobile", ""),
-                "role": user.get("role", "User")
+                "role": user.get("role") or "User"
             },
             status=status.HTTP_200_OK
         )
