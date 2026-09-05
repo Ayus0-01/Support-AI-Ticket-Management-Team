@@ -9,7 +9,7 @@ from .embeddings import (
     generate_embeddings,
 )
 from .filters import apply_retrieval_filters
-from .reranker import rerank_results
+from .reranker import rerank_results, _get_reranker
 
 
 VECTOR_INDEX_NAME = "kb_vector_index"
@@ -486,6 +486,8 @@ def hybrid_search(
             20,
         )
 
+    _get_reranker()
+
     vector_results, keyword_results = (
         _run_hybrid_pair(
             query=query,
@@ -549,6 +551,8 @@ def multi_query_hybrid_search(
 
     if not queries:
         return []
+
+    _get_reranker()
 
     merged_candidates: Dict[
         Tuple[str, int],

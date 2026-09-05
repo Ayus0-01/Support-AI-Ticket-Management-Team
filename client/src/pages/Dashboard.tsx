@@ -27,6 +27,8 @@ import {
   AlertCircle, Zap, ShieldCheck,
 } from 'lucide-react';
 import ResolutionPanel from "../components/resolution/ResolutionPanel";
+import UserResolutionCard from "../components/resolution/UserResolutionCard";
+import { M3WorkflowPanel } from "../components/m3/M3WorkflowPanel";
 import KnowledgeBaseWorkspace from "../components/knowledge-base/KnowledgeBasePage";
 import SuggestedArticles from "../components/knowledge-base/SuggestedArticles";
 
@@ -741,15 +743,59 @@ useEffect(() => {
                 )}
 
                 {isAgentWorkspace && (
-                  <ResolutionPanel
-                    ticketId={selectedTicketId}
-                    onResponseChanged={async () => {
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-500"></span>
+                      <h3 className={`text-xs font-bold uppercase tracking-[0.2em] ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>
+                        M3 — Autonomous Multi-Agent AI Workflow
+                      </h3>
+                    </div>
+                    <M3WorkflowPanel ticketId={selectedTicketId} isDark={isDark} />
+                  </div>
+                )}
+
+                {isAgentWorkspace && (
+                  <div className="space-y-2 pt-4 border-t border-dashed border-gray-300 dark:border-gray-800">
+                    <div className="flex flex-wrap items-center gap-2 px-1">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
+                      <h3 className={`text-xs font-bold uppercase tracking-[0.2em] ${isDark ? 'text-indigo-400' : 'text-indigo-700'}`}>
+                        M2 — Agent Draft Resolution & Review
+                      </h3>
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${isDark ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                        Independent Agent Draft Capability
+                      </span>
+                    </div>
+                    <ResolutionPanel
+                      ticketId={selectedTicketId}
+                      onResponseChanged={async () => {
+                        try {
+                          await refreshQueueTicket();
+                          const timelineData = await getTicketTimeline(selectedTicketId);
+                          setTimeline(timelineData);
+                        } catch (refreshError) {
+                          console.error("Failed to refresh ticket data after resolution update:", refreshError);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
+                {!isAgentWorkspace && detailTicket && (detailTicket.resolution_status === "SENT" || detailTicket.resolution_status === "EDITED_SENT") && (
+                  <UserResolutionCard
+                    ticket={detailTicket}
+                    isDark={isDark}
+                    onConfirmed={async () => {
                       try {
-                        await refreshQueueTicket();
+                        const updatedTicket = await getTicketDetails(selectedTicketId);
+                        setDetailTicket(updatedTicket);
                         const timelineData = await getTicketTimeline(selectedTicketId);
                         setTimeline(timelineData);
+                        if (activeTab === 'my-tickets') {
+                          const refreshedTickets = await getMyTickets();
+                          setMyTickets(refreshedTickets);
+                        }
                       } catch (refreshError) {
-                        console.error("Failed to refresh ticket data after resolution update:", refreshError);
+                        console.error("Failed to refresh ticket data after user resolution confirmation:", refreshError);
                       }
                     }}
                   />
@@ -2021,11 +2067,26 @@ useEffect(() => {
     sessionStorage.setItem('dashboardActive', activePage);
   }, [activePage]);
 
+  // Redirect Agent / Admin away from restricted pages (Create Ticket, My Tickets)
+  useEffect(() => {
+    if (activePage === 'Create Ticket' && !can('CREATE_TICKET')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    } else if (activePage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+      setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+    }
+  }, [activePage, can]);
+
   useEffect(() => {
     if (initialPage) {
-      setActivePage(initialPage);
+      if (initialPage === 'Create Ticket' && !can('CREATE_TICKET')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else if (initialPage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
+        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
+      } else {
+        setActivePage(initialPage);
+      }
     }
-  }, [initialPage]);
+  }, [initialPage, can]);
 
   // Compute sidebar priority counts from the live dashboard dataset.
   const priorityCounts = homeTickets.reduce((acc: Record<string, number>, ticket) => {

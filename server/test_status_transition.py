@@ -13,7 +13,7 @@ print("STATUS TRANSITION TEST")
 print("=" * 80)
 
 
-print("\nTEST 1: Open → In Progress")
+print("\nTEST 1: Open -> In Progress")
 
 result = transition_ticket_status(
     ticket_id=TICKET_ID,
@@ -24,7 +24,7 @@ result = transition_ticket_status(
 print(result)
 
 
-print("\nTEST 2: In Progress → Resolved")
+print("\nTEST 2: In Progress -> Resolved")
 
 result = transition_ticket_status(
     ticket_id=TICKET_ID,
@@ -35,7 +35,7 @@ result = transition_ticket_status(
 print(result)
 
 
-print("\nTEST 3: Resolved → In Progress")
+print("\nTEST 3: Resolved -> In Progress")
 
 result = transition_ticket_status(
     ticket_id=TICKET_ID,

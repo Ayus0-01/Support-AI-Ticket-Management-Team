@@ -164,3 +164,20 @@ export const submitResolutionFeedback = async (
 ): Promise<void> => {
   await api.post(`/api/tickets/responses/${responseId}/feedback/`, body);
 };
+
+export const sendManualResolution = async (
+  ticketId: string,
+  summary: string,
+): Promise<ResolutionResponse> => {
+  const response = await api.post(`/api/tickets/${ticketId}/manual-resolution/`, {
+    summary,
+  });
+  const responseId = response.data?.response_id || response.data?.response?.id;
+
+  if (typeof responseId !== "string" || !responseId) {
+    throw new Error("Manual resolution did not return a response ID.");
+  }
+
+  return getResolutionResponse(responseId);
+};
+

@@ -1,10 +1,10 @@
 from AIticket.db import article_chunks_collection
-from apps.knowledge_base.embeddings import generate_embedding
+from apps.knowledge_base.embeddings import generate_embeddings
 
 
 query = "VPN connection timeout troubleshooting"
 
-query_vector = generate_embedding(query)
+query_vector = generate_embeddings([query])[0]
 
 pipeline = [
     {

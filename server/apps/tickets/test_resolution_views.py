@@ -393,4 +393,104 @@ class ResolutionViewTests(SimpleTestCase):
             was_helpful=True,
             comment="Resolved my issue.",
             resolved_ticket=True,
+            user_role="User",
         )
+
+    def test_requester_can_get_sent_resolution_response(self):
+        user_id = ObjectId()
+        response_id = ObjectId()
+        ticket_id = ObjectId()
+        response_doc = {
+            "_id": response_id,
+            "ticket_id": ticket_id,
+            "ticket_number": "IT-2026-000001",
+            "status": "SENT",
+            "summary": "Sample resolution",
+            "steps": [],
+            "sources": [],
+            "confidence": 0.9,
+        }
+        ticket_doc = {
+            "_id": ticket_id,
+            "ticket_id": "IT-2026-000001",
+            "requester": {"user_id": str(user_id)},
+        }
+        request = self.factory.get(f"/api/tickets/responses/{response_id}/")
+
+        with patch.object(
+            views,
+            "_get_authenticated_user",
+            return_value=({"_id": user_id, "role": "User"}, None),
+        ), patch.object(
+            views,
+            "get_response_for_review",
+            return_value=response_doc,
+        ), patch.object(
+            views.tickets_collection,
+            "find_one",
+            return_value=ticket_doc,
+        ), patch.object(
+            views,
+            "_get_response_citations",
+            return_value=[],
+        ):
+            response = views.get_resolution_response_view(
+                request,
+                response_id=str(response_id),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], str(response_id))
+        self.assertEqual(response.data["status"], "SENT")
+
+    def test_feedback_ownership_error_returns_forbidden(self):
+        user_id = ObjectId()
+        response_id = ObjectId()
+        request = self.factory.post(
+            f"/api/tickets/responses/{response_id}/feedback/",
+            {"was_helpful": True, "comment": "", "resolved_ticket": True},
+            format="json",
+        )
+
+        with patch.object(
+            views,
+            "_get_authenticated_user",
+            return_value=({"_id": user_id, "role": "User"}, None),
+        ), patch.object(
+            views,
+            "submit_feedback",
+            side_effect=ValueError("You can only submit feedback for your own tickets."),
+        ):
+            response = views.resolution_feedback_view(
+                request,
+                response_id=str(response_id),
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("own tickets", response.data["message"])
+
+    def test_feedback_duplicate_error_returns_conflict(self):
+        user_id = ObjectId()
+        response_id = ObjectId()
+        request = self.factory.post(
+            f"/api/tickets/responses/{response_id}/feedback/",
+            {"was_helpful": True, "comment": "", "resolved_ticket": True},
+            format="json",
+        )
+
+        with patch.object(
+            views,
+            "_get_authenticated_user",
+            return_value=({"_id": user_id, "role": "User"}, None),
+        ), patch.object(
+            views,
+            "submit_feedback",
+            side_effect=ValueError("Feedback has already been submitted for this resolution."),
+        ):
+            response = views.resolution_feedback_view(
+                request,
+                response_id=str(response_id),
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already been submitted", response.data["message"])

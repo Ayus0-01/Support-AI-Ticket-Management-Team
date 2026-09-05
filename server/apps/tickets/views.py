@@ -58,6 +58,7 @@ from apps.knowledge_base.review_service import (
     edit_and_send_response,
     reject_response,
     submit_feedback,
+    send_manual_resolution,
 )
 
 
@@ -1652,11 +1653,6 @@ def get_resolution_response_view(
     if error:
         return error
 
-    role_error = _require_agent_or_admin(user)
-
-    if role_error:
-        return role_error
-
     try:
         response_document = get_response_for_review(
             response_id=response_id
@@ -1668,6 +1664,22 @@ def get_resolution_response_view(
         return Response(
             {"message": "Resolution response not found."},
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    user_role = user.get("role", "User")
+    is_staff = user_role in {"Agent", "Admin"}
+
+    ticket = tickets_collection.find_one({"_id": response_document["ticket_id"]})
+    is_requester = (
+        ticket
+        and str((ticket.get("requester") or {}).get("user_id")) == str(user["_id"])
+    )
+    is_sent = response_document.get("status") in {"SENT", "EDITED_SENT"}
+
+    if not is_staff and not (is_requester and is_sent):
+        return Response(
+            {"message": "Only Agent or Admin users can perform this action."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     return Response(
@@ -1910,7 +1922,7 @@ def resolution_feedback_view(
         )
 
     try:
-        feedback = submit_feedback(
+        feedback_result = submit_feedback(
             response_id=response_id,
             user_id=user["_id"],
             was_helpful=was_helpful,
@@ -1922,22 +1934,127 @@ def resolution_feedback_view(
                 "resolved_ticket",
                 False,
             ),
+            user_role=user.get("role", "User"),
         )
 
     except ValueError as exc:
+        msg = str(exc)
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "already been submitted" in msg:
+            status_code = status.HTTP_409_CONFLICT
+        elif "only submit feedback for your own" in msg:
+            status_code = status.HTTP_403_FORBIDDEN
+
         return Response(
             {
-                "message": str(exc)
+                "message": msg
+            },
+            status=status_code,
+        )
+
+    feedback_doc = feedback_result
+    ticket_doc = None
+    if isinstance(feedback_result, dict):
+        if "feedback" in feedback_result:
+            feedback_doc = feedback_result["feedback"]
+            ticket_doc = feedback_result.get("ticket")
+
+    feedback_id = (
+        str(feedback_doc["_id"])
+        if isinstance(feedback_doc, dict) and "_id" in feedback_doc
+        else str(feedback_doc)
+    )
+
+    response_payload = {
+        "message": "Feedback recorded successfully.",
+        "feedback_id": feedback_id,
+    }
+
+    if ticket_doc and isinstance(ticket_doc, dict):
+        response_payload.update({
+            "ticket_id": ticket_doc.get("ticket_id"),
+            "ticket_status": ticket_doc.get("status"),
+            "resolution_status": ticket_doc.get("resolution_status"),
+            "confirmed": request.data.get("resolved_ticket", False),
+        })
+
+    return Response(
+        response_payload,
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def send_manual_resolution_view(
+    request,
+    ticket_id,
+):
+    user, error = _get_authenticated_user(
+        request
+    )
+
+    if error:
+        return error
+
+    role_error = _require_agent_or_admin(
+        user
+    )
+
+    if role_error:
+        return role_error
+
+    summary = request.data.get(
+        "summary",
+        "",
+    )
+
+    if isinstance(summary, str):
+        summary = summary.strip()
+
+    if not summary:
+        return Response(
+            {
+                "message": "Manual resolution cannot be empty."
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    try:
+        response_document = send_manual_resolution(
+            ticket_id=ticket_id,
+            reviewer_id=user["_id"],
+            summary=summary,
+        )
+
+    except ValueError as exc:
+        msg = str(exc)
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "Ticket not found" in msg:
+            status_code = status.HTTP_404_NOT_FOUND
+
+        return Response(
+            {
+                "message": msg
+            },
+            status=status_code,
+        )
+
     return Response(
         {
-            "message": "Feedback recorded.",
-            "feedback_id": str(
-                feedback["_id"]
-            ),
+            "message": "Manual resolution sent.",
+            "response_id": str(response_document["_id"]),
+            "ticket_id": response_document.get("ticket_number") or ticket_id,
+            "status": response_document.get("status"),
+            "resolution_status": "SENT",
+            "response": {
+                "id": str(response_document["_id"]),
+                "status": response_document.get("status"),
+                "ticket_id": response_document.get("ticket_number"),
+                "summary": response_document.get("summary"),
+            },
         },
-        status=status.HTTP_201_CREATED,
+        status=status.HTTP_200_OK,
     )
+
