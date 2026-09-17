@@ -183,10 +183,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<{ success: boolean; message?: string }> => {
     try {
       // 1. Login and get JWT tokens
+      
+
       const response = await api.post("/api/auth/login/", {
         email: username,
         password: password,
       });
+      
 
       // Axios stores the response body inside response.data
       const data = response.data;

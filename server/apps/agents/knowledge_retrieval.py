@@ -25,7 +25,12 @@ class KnowledgeRetrievalAgent(BaseAgent):
         category = (input_data.get("category") or "").strip()
         subcategory = (input_data.get("subcategory") or "").strip()
         severity = (input_data.get("severity") or "").strip()
-        priority = (input_data.get("priority") or "").strip()
+        priority_data = input_data.get("priority") or ""
+
+        if isinstance(priority_data, dict):
+            priority = str(priority_data.get("value") or "").strip()
+        else:
+            priority = str(priority_data).strip()
         diagnosis = input_data.get("diagnosis", {})
 
         # Extract affected system from Diagnosis Agent output if available
