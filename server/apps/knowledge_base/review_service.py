@@ -2,7 +2,11 @@ from datetime import datetime, timezone
 import difflib
 import logging
 
-from apps.agents.email_service import send_resolution_email, send_not_solved_email
+from apps.agents.email_service import (
+    send_resolution_email,
+    send_not_solved_email,
+    send_resolved_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +28,7 @@ from AIticket.db import (
 from apps.tickets.services import (
     add_ticket_comment,
     transition_ticket_status,
+    auto_assign_ticket,
 )
 
 
@@ -490,19 +495,67 @@ def submit_feedback(
     comment_text = (comment or "").strip()
 
     if requester_confirmed:
-        # Requester confirmation is feedback, not an authorization to close a
-        # ticket. The assigned Agent retains the existing explicit status-change
-        # action and decides whether the ticket can be marked Resolved.
+        # Customer acceptance is an explicit confirmation of the AI solution.
+        # Complete the ticket through the normal status-transition/audit path.
         update_ticket_resolution_state(
             ticket_id=ticket["_id"],
             resolution_status="CONFIRMED",
             response_id=response["_id"],
         )
 
+        if ticket.get("status") == "Open":
+            transition_ticket_status(
+                ticket_id=ticket["ticket_id"],
+                new_status="In Progress",
+                actor_user_id=user_id,
+            )
+
+        current_status = tickets_collection.find_one({"_id": ticket["_id"]})
+        if current_status and current_status.get("status") == "In Progress":
+            transition_ticket_status(
+                ticket_id=ticket["ticket_id"],
+                new_status="Resolved",
+                actor_user_id=user_id,
+                resolution_summary=response.get("summary", "AI resolution confirmed by customer."),
+            )
+
+                    # Send resolved notification after the ticket is actually resolved.
+        try:
+            resolved_ticket = tickets_collection.find_one(
+                {"_id": ticket["_id"]}
+            )
+
+            resolved_email_result = send_resolved_email(
+                ticket=resolved_ticket or ticket,
+                resolution=response,
+            )
+
+            log_activity(
+                ticket_id=ticket["ticket_id"],
+                action="RESOLVED_EMAIL_SENT",
+                details="Ticket resolved notification email processed.",
+                actor="Resolution Workflow",
+                agent_name="ReviewService",
+                status=resolved_email_result.get("status", "UNKNOWN"),
+                metadata={
+                    "email_result": resolved_email_result,
+                },
+            )
+
+        except Exception as email_error:
+            log_activity(
+                ticket_id=ticket["ticket_id"],
+                action="RESOLVED_EMAIL_FAILED",
+                details=f"Resolved notification email failed: {email_error}",
+                actor="Resolution Workflow",
+                agent_name="ReviewService",
+                status="FAILED",
+            )
+
         timeline_comment = (
-            f"Requester confirmed the resolution helped. Awaiting agent closure. Feedback: {comment_text}"
+            f"Requester confirmed the AI resolution solved the issue. Ticket resolved. Feedback: {comment_text}"
             if comment_text
-            else "Requester confirmed the resolution helped. Awaiting agent closure."
+            else "Requester confirmed the AI resolution solved the issue. Ticket resolved."
         )
         add_ticket_comment(
             ticket_id=ticket["ticket_id"],
@@ -531,6 +584,21 @@ def submit_feedback(
             visibility="PUBLIC",
             source="HUMAN",
         )
+
+        # Customer rejection immediately enters the human-support routing
+        # path. If all suitable agents are at capacity, it remains queued.
+        assigned_ticket = auto_assign_ticket(
+            ticket_id=ticket["ticket_id"],
+            actor_username="Customer Rejection Router",
+        )
+        if assigned_ticket:
+            add_ticket_comment(
+                ticket_id=ticket["ticket_id"],
+                author_user_id="SYSTEM",
+                comment=f"Ticket routed to support agent {assigned_ticket.get('assignee')} after customer rejected the AI resolution.",
+                visibility="INTERNAL",
+                source="AUTO_ASSIGNMENT",
+            )
 
         try:
             send_not_solved_email(

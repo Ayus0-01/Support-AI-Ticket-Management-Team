@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import AccessToken
 
+
 from AIticket.db import users_collection
 from .constants import USER_ROLES
 from .serializers import (
@@ -129,7 +130,20 @@ def register(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def login(request):
+    
+
     serializer = LoginSerializer(data=request.data)
+
+    if serializer.is_valid():
+        debug_user = users_collection.find_one(
+            {"email": serializer.validated_data["email"]}
+        )
+
+        
+    
+
+    
+    
 
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

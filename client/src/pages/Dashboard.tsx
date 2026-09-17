@@ -20,6 +20,7 @@ import {
   autoAssignTicket,
   getAIPerformance,
   getAgentsWorkload,
+  getManagerOverview,
 } from "../services/ticketService";
 import type {
   Ticket as ApiTicket,
@@ -330,9 +331,26 @@ useEffect(() => {
       setLoading(true);
       setError("");
 
+      if (title === "All Tickets") {
+        const data = await getManagerOverview();
+        const allTickets = data.all_tickets || [];
+        const sortedTickets = [...allTickets].sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() -
+            new Date(a.created_at).getTime()
+        );
+        setTickets(sortedTickets);
+        return;
+      }
+
       const data = await getMyTickets();
-      const sortedTickets = [...data].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const sortedTickets = [...data].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime()
+      );
       setTickets(sortedTickets);
+      
     } catch (err) {
       console.error("Failed to load ticket data:", err);
 
@@ -360,7 +378,9 @@ useEffect(() => {
         );
       } else {
         setError(
-          "Could not load your tickets."
+          title === "All Tickets"
+            ? "Could not load all tickets."
+            : "Could not load your tickets."
         );
       }
     } finally {
@@ -3056,7 +3076,7 @@ useEffect(() => {
   const renderPage = () => {
     switch (activePage) {
       case 'All Tickets':
-        return <MyTicketsPage title="My Tickets" isDark={isDark} selectedTicketId={selectedTicketId} onOpenTicket={handleOpenTicket} onBack={handleBackToList} onRaise={() => setActivePage('Create Ticket')} onOpenKB={openKnowledgeBase} canViewClassification={can('VIEW_CLASSIFICATION')} />;
+        return <MyTicketsPage title="All Tickets" isDark={isDark} selectedTicketId={selectedTicketId} onOpenTicket={handleOpenTicket} onBack={handleBackToList} onRaise={() => setActivePage('Create Ticket')} onOpenKB={openKnowledgeBase} canViewClassification={can('VIEW_CLASSIFICATION')} />;
       case 'Ticket Queue':
       case 'My queue':
         if (!can('VIEW_AGENT_QUEUE')) {

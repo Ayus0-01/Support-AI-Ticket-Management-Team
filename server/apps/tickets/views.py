@@ -1,3 +1,4 @@
+import threading
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -10,7 +11,7 @@ from rest_framework import status
 
 from rest_framework_simplejwt.tokens import AccessToken
 from bson import ObjectId
-
+from apps.agents.email_service import send_ticket_created_email
 from AIticket.db import (
     users_collection,
     tickets_collection,
@@ -26,6 +27,7 @@ from .serializers import (
     ClassificationOverrideSerializer,
     StatusTransitionSerializer,
     TicketCommentSerializer,
+    
 )
 from .services import (
     create_ticket,
@@ -207,13 +209,35 @@ def create_ticket_view(request):
     }
 
     ticket = create_ticket(
-        serializer.validated_data,
-        requester
+       serializer.validated_data,
+       requester
     )
+
+    def send_ticket_created_email_background(ticket_data):
+        try:
+            send_ticket_created_email(ticket=ticket_data)
+        except Exception as email_error:
+            logger.warning(
+                f"Ticket-created notification email failed: {email_error}"
+        )
+
+
+    threading.Thread(
+       target=send_ticket_created_email_background,
+       args=(ticket,),
+       daemon=True,
+    ).start()
 
     enqueue_classification(
         ticket["ticket_id"]
-    )
+)
+        
+        
+    
+
+    
+        
+    
 
     # return created ticket
 
@@ -285,44 +309,44 @@ def get_tickets_view(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def get_ticket_detail_view(request, ticket_id):
+    """
+    Return ticket details.
 
-    auth_header = request.headers.get("Authorization")
+    Customers can view only their own tickets.
+    Agents, Support Managers, Managers, and Admins can
+    view support tickets according to their role.
+    """
 
-    if not auth_header:
-        return Response(
-            {
-                "message": "Authorization header missing."
-            },
-            status=status.HTTP_401_UNAUTHORIZED
+    user, error = _get_authenticated_user(request)
+
+    if error:
+        return error
+
+    role = user.get("role", "User")
+
+    # ---------------------------------------------------------
+    # Staff users can view any ticket.
+    # ---------------------------------------------------------
+    if role in {
+        "Agent",
+        "Support Manager",
+        "Manager",
+        "Admin",
+    }:
+        ticket = tickets_collection.find_one(
+            {"ticket_id": ticket_id}
         )
 
-    try:
-        parts = auth_header.split(" ")
-
-        if len(parts) != 2 or parts[0] != "Bearer":
-            return Response(
-                {
-                    "message": "Invalid Authorization header."
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        token = parts[1]
-
-        access_token = AccessToken(token)
-        user_id = access_token["user_id"]
-
-    except Exception as e:
-        print("JWT error:", e)
-
-        return Response(
+    # ---------------------------------------------------------
+    # Normal customers can view only their own ticket.
+    # ---------------------------------------------------------
+    else:
+        ticket = tickets_collection.find_one(
             {
-                "message": "Invalid or expired token."
-            },
-            status=status.HTTP_401_UNAUTHORIZED
+                "ticket_id": ticket_id,
+                "requester.user_id": str(user["_id"]),
+            }
         )
-
-    ticket = get_ticket_by_id(ticket_id, user_id)
 
     if not ticket:
         return Response(
@@ -333,7 +357,7 @@ def get_ticket_detail_view(request, ticket_id):
         )
 
     safe_ticket = EmployeeTicketSerializer(
-        ticket,
+        ticket
     ).data
 
     return Response(
@@ -1511,8 +1535,43 @@ def _get_response_citations(response_id):
     ]
 
 
+def _make_json_safe(value):
+    """
+    Convert MongoDB/BSON values into JSON-serializable values.
+
+    ObjectId -> string
+    Decimal128 -> float
+    datetime -> ISO string
+    dict/list -> recursively converted
+    """
+    from datetime import datetime
+    from bson.decimal128 import Decimal128
+
+    if isinstance(value, ObjectId):
+        return str(value)
+
+    if isinstance(value, Decimal128):
+        return float(value.to_decimal())
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        return {
+            str(key): _make_json_safe(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [
+            _make_json_safe(item)
+            for item in value
+        ]
+
+    return value
+
 def _serialize_resolution_response(response_document):
-    return {
+    return _make_json_safe({
         "id": str(response_document["_id"]),
         "ticket_id": response_document.get("ticket_number"),
         "status": response_document.get("status"),
@@ -1539,9 +1598,10 @@ def _serialize_resolution_response(response_document):
             "steps_dropped",
             0,
         ),
-        "reject_reason": response_document.get("reject_reason"),
-    }
-
+        "reject_reason": response_document.get(
+            "reject_reason"
+        ),
+    })
 
 def _get_authenticated_user(request):
     auth_header = request.headers.get(
@@ -2076,10 +2136,19 @@ def manager_overview_view(request):
     user, error = _get_authenticated_user(request)
     if error:
         return error
+
     if user.get("role") not in {"Support Manager", "Manager", "Admin"}:
-        return Response({"message": "Manager or Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            {"message": "Manager or Admin access required."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
     data = get_manager_overview_data()
-    return Response(data, status=status.HTTP_200_OK)
+
+    return Response(
+        _make_json_safe(data),
+        status=status.HTTP_200_OK
+    )
 
 
 @api_view(["POST"])
