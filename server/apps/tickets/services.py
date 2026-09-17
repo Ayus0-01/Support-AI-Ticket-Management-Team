@@ -1065,18 +1065,26 @@ def auto_assign_ticket(ticket_id, actor_username=None):
     Intelligently auto-assign a ticket to the available active agent with the lowest current workload.
     """
     workload = get_agents_workload()
-    active_agents = [a for a in workload if a.get("is_active", True)]
+    active_agents = [a for a in workload if a.get("is_active") is not False]
     if not active_agents:
         return None
 
     all_tickets = list(tickets_collection.find({}))
 
     def get_last_assigned_time(agent_username):
-        assigned_times = [
-            t.get("created_at") or datetime.min.replace(tzinfo=timezone.utc)
-            for t in all_tickets
-            if t.get("assignee") == agent_username
-        ]
+        assigned_times = []
+        for t in all_tickets:
+            if t.get("assignee") == agent_username:
+                dt = t.get("created_at") or t.get("updated_at")
+                if isinstance(dt, str):
+                    try:
+                        dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                    except Exception:
+                        dt = None
+                if isinstance(dt, datetime):
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    assigned_times.append(dt)
         return max(assigned_times) if assigned_times else datetime.min.replace(tzinfo=timezone.utc)
 
     sorted_agents = sorted(
