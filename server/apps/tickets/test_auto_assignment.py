@@ -100,3 +100,22 @@ class AutoAssignmentWorkloadTests(SimpleTestCase):
         ):
             assigned = services.auto_assign_ticket("TKT-NEW-004")
             self.assertIsNone(assigned)
+
+    def test_handles_mixed_datetime_and_string_timestamps(self):
+        """
+        Verify that auto_assign_ticket correctly handles mixed ISO string and datetime object timestamps without raising TypeError.
+        """
+        agents = [
+            {"_id": ObjectId(), "username": "agent_a", "email": "a@example.com", "role": "Agent", "is_active": True},
+            {"_id": ObjectId(), "username": "agent_b", "email": "b@example.com", "role": "Agent", "is_active": True},
+        ]
+        tickets = [
+            {"assignee": "agent_a", "status": "Open", "ticket_id": "T1", "created_at": "2026-09-17T10:00:00+00:00"},
+            {"assignee": "agent_b", "status": "Open", "ticket_id": "T2", "created_at": datetime.now(timezone.utc)},
+        ]
+
+        with patch.object(services.users_collection, "find", return_value=agents), patch.object(
+            services.tickets_collection, "find", return_value=tickets
+        ), patch.object(services, "assign_ticket", side_effect=lambda tid, uname, actor: {"ticket_id": tid, "assignee": uname}):
+            assigned = services.auto_assign_ticket("TKT-NEW-005")
+            self.assertIsNotNone(assigned)
