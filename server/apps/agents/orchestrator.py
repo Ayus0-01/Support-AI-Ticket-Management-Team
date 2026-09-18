@@ -25,7 +25,19 @@ from .interfaces import (
     EscalationAgentStub,
 )
 from .jira_service import create_jira_issue
-from .email_service import send_escalation_email
+from .email_service import (
+    send_escalation_email,
+    send_resolution_email,
+)
+from apps.knowledge_base.persistence import (
+    create_retrieval_log,
+    create_ticket_response,
+    create_response_citations,
+    mark_ticket_resolution_generated,
+    update_ticket_response_status,
+    update_ticket_resolution_state,
+)
+from apps.tickets.services import auto_assign_ticket, transition_ticket_status
 
 
 
@@ -332,6 +344,8 @@ def execute_orchestration_pipeline(
         **m1_m2_context,
         "diagnosis": diag_output.get("diagnosis", {}),
         "retrieved_evidence": ret_output.get("retrieved_evidence", []),
+        "packed_context": ret_output.get("packed_context", ""),
+        "sources": ret_output.get("sources", []),
     }
     res_output = res_agent.run(res_input)
     record_agent_execution(
@@ -405,19 +419,130 @@ def execute_orchestration_pipeline(
     # --- Stage 5 Decision: Auto Resolution OR Escalation ---
     now = get_utc_now()
     if is_valid and val_confidence >= confidence_threshold:
+        # High-confidence M3 result becomes the customer-facing resolution.
+        # Keep the response in the same M2 persistence model so the existing
+        # customer UI, citations and feedback flow can consume it safely.
+        raw_resolution = res_output.get("resolution") or {}
+        raw_steps = raw_resolution.get("troubleshooting_steps") or []
+        normalized_steps = []
+        for index, raw_step in enumerate(raw_steps, start=1):
+            if isinstance(raw_step, dict):
+                instruction = str(raw_step.get("instruction") or raw_step.get("text") or "").strip()
+                sources = raw_step.get("sources") or []
+            else:
+                instruction = str(raw_step).strip()
+                import re
+                sources = re.findall(r"\[SOURCE:[^\]]+\]", instruction)
+            if instruction:
+                normalized_steps.append({
+                    "order": index,
+                    "instruction": instruction,
+                    "sources": sources,
+                    "requires_approval": False,
+                })
+
+        retrieval_results = ret_output.get("retrieved_evidence", [])
+        retrieval_log = create_retrieval_log(
+            ticket_id=ticket_data.get("_id"),
+            queries_used=ret_output.get("queries_used", []),
+            chunks_retrieved=len(retrieval_results),
+            results=retrieval_results,
+        )
+        response_payload = {
+            "sufficient_context": True,
+            "summary": str(raw_resolution.get("summary") or "AI resolution generated successfully.").strip(),
+            "steps": normalized_steps,
+            "sources": ret_output.get("sources", []),
+            "escalation_recommended": False,
+            "escalation_reason": None,
+            "confidence": val_confidence,
+            "confidence_parts": {
+                "diagnosis": float(diag_output.get("confidence", 0.0) or 0.0),
+                "resolution": float(res_output.get("confidence", 0.0) or 0.0),
+                "groundedness": float(val_details.get("groundedness_ratio", 0.0) or 0.0),
+            },
+        }
+        response_doc = create_ticket_response(
+            ticket=ticket_data,
+            resolution=response_payload,
+            retrieval_log=retrieval_log,
+            queries_used=ret_output.get("queries_used", []),
+            model="qwen3:4b",
+            prompt_version="m3-resolution.v1",
+        )
+        create_response_citations(
+            response=response_doc,
+            retrieval_results=retrieval_results,
+        )
+        mark_ticket_resolution_generated(
+            ticket_id=ticket_data.get("_id"),
+            response_id=response_doc["_id"],
+        )
+        update_ticket_response_status(
+            response_id=response_doc["_id"],
+            status="SENT",
+            reviewed_at=get_utc_now(),
+        )
+        update_ticket_resolution_state(
+            ticket_id=ticket_data.get("_id"),
+            resolution_status="SENT",
+            response_id=response_doc["_id"],
+        )
+
+                # Send AI resolution notification to the customer
+        try:
+            resolution_email_result = send_resolution_email(
+                ticket=ticket_data,
+                response=response_doc,
+)
+            
+            log_activity(
+                ticket_id=ticket_id,
+                action="RESOLUTION_EMAIL_SENT",
+                details="AI resolution email notification processed.",
+                actor="Multi-Agent Orchestrator",
+                workflow_id=workflow_id,
+                agent_name="ResolutionAgent",
+                status=resolution_email_result.get("status", "UNKNOWN"),
+                metadata={
+                    "email_result": resolution_email_result,
+                },
+            )
+        except Exception as email_error:
+            log_activity(
+                ticket_id=ticket_id,
+                action="RESOLUTION_EMAIL_FAILED",
+                details=f"AI resolution email failed: {email_error}",
+                actor="Multi-Agent Orchestrator",
+                workflow_id=workflow_id,
+                agent_name="ResolutionAgent",
+                status="FAILED",
+            )
+        # A customer-facing AI solution is now waiting for confirmation.
+        # Move Open -> In Progress so accepting the solution can complete it.
+        current_ticket = tickets_collection.find_one({"ticket_id": ticket_id})
+        if current_ticket and current_ticket.get("status") == "Open":
+            transition_ticket_status(
+                ticket_id=ticket_id,
+                new_status="In Progress",
+                actor_user_id="AI_ORCHESTRATOR",
+            )
+
         agent_workflows_collection.update_one(
             {"workflow_id": workflow_id},
             {"$set": {
                 "workflow_status": "COMPLETED",
                 "auto_resolve_eligible": True,
                 "requires_escalation": False,
+                "customer_response_id": response_doc["_id"],
+                "customer_response_status": "SENT",
                 "completed_at": now,
             }}
         )
         log_activity(
             ticket_id=ticket_id,
-            action="AUTO_RESOLUTION_APPROVED",
-            details="Workflow completed successfully with high confidence.",
+            action="AUTO_RESOLUTION_SENT_TO_CUSTOMER",
+            details="High-confidence multi-agent resolution was sent to the customer for confirmation.",
             actor="Multi-Agent Orchestrator",
             workflow_id=workflow_id,
             agent_name="ValidationAgent",
@@ -425,6 +550,7 @@ def execute_orchestration_pipeline(
             metadata={
                 "final_confidence": val_confidence,
                 "auto_resolve_eligible": True,
+                "response_id": str(response_doc["_id"]),
             },
         )
     else:
@@ -449,6 +575,36 @@ def execute_orchestration_pipeline(
         # Invoke Email Integration Service layer for escalated tickets
         email_result = send_escalation_email(esc_input)
         esc_data["email_result"] = email_result
+
+        # Keep the agent that was assigned BEFORE AI processing started.
+        # Only assign a new agent if the ticket somehow has no assignee.
+        current_ticket = tickets_collection.find_one(
+            {"ticket_id": ticket_id}
+        )
+
+        existing_assignee = (
+            current_ticket.get("assignee")
+            if current_ticket
+            else None
+        )
+
+        if existing_assignee:
+            esc_data["assigned_agent"] = existing_assignee
+            esc_data["assignment_status"] = "ASSIGNED"
+        else:
+            assigned_ticket = auto_assign_ticket(
+                ticket_id=ticket_id,
+                actor_username="Multi-Agent Orchestrator",
+            )
+
+            if assigned_ticket:
+                esc_data["assigned_agent"] = assigned_ticket.get(
+                    "assignee"
+                )
+                esc_data["assignment_status"] = "ASSIGNED"
+            else:
+                esc_data["assigned_agent"] = None
+                esc_data["assignment_status"] = "QUEUED"
 
         record_agent_execution(
             workflow_id=workflow_id,

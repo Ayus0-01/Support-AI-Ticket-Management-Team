@@ -20,6 +20,7 @@ import {
   autoAssignTicket,
   getAIPerformance,
   getAgentsWorkload,
+  getManagerOverview,
 } from "../services/ticketService";
 import type {
   Ticket as ApiTicket,
@@ -52,7 +53,7 @@ interface DashboardProps {
   initialPage?: NavPage;
 }
 
-export type NavPage = 'Dashboard' | 'All Tickets' | 'Ticket Queue' | 'My queue' | 'My Tickets' | 'Create Ticket' | 'Agent Assignment' | 'Escalations' | 'SLA Management' | 'Agent Performance' | 'AI Performance' | 'Reports' | 'Knowledge Base' | 'Notifications' | 'Profile' | 'Users' | 'Settings' | 'Taxonomy' | 'SLA policies' | 'AI Assistant';
+export type NavPage = 'Dashboard' | 'All Tickets' | 'Ticket Queue' | 'My queue' | 'My Tickets' | 'Create Ticket' | 'Agent Assignment' | 'Escalations' | 'SLA Management' | 'Agent Performance' | 'AI Performance' | 'Reports' | 'Knowledge Base' | 'Notifications' | 'Profile' | 'Users' | 'Settings' | 'Taxonomy' | 'SLA policies';
 
 
 const AI_QUICK_ACTIONS = ['Summarize tickets', 'Show unresolved tickets', 'Draft reply', 'Escalate ticket'];
@@ -210,11 +211,6 @@ const sidebarGroups: {
 
     items: [
       {
-        name: 'AI Assistant',
-        icon: Sparkles,
-      },
-
-      {
         name: 'Reports',
         icon: BarChart3,
         capability: 'VIEW_REPORTS',
@@ -275,7 +271,6 @@ const managerSidebarGroups: {
       { name: 'Notifications', icon: Bell },
       { name: 'Profile', icon: Users },
       { name: 'Knowledge Base', icon: BookOpen },
-      { name: 'AI Assistant', icon: Sparkles },
     ],
   },
 ];
@@ -330,9 +325,26 @@ useEffect(() => {
       setLoading(true);
       setError("");
 
+      if (title === "All Tickets") {
+        const data = await getManagerOverview();
+        const allTickets = data.all_tickets || [];
+        const sortedTickets = [...allTickets].sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() -
+            new Date(a.created_at).getTime()
+        );
+        setTickets(sortedTickets);
+        return;
+      }
+
       const data = await getMyTickets();
-      const sortedTickets = [...data].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const sortedTickets = [...data].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime()
+      );
       setTickets(sortedTickets);
+      
     } catch (err) {
       console.error("Failed to load ticket data:", err);
 
@@ -360,7 +372,9 @@ useEffect(() => {
         );
       } else {
         setError(
-          "Could not load your tickets."
+          title === "All Tickets"
+            ? "Could not load all tickets."
+            : "Could not load your tickets."
         );
       }
     } finally {
@@ -3056,7 +3070,7 @@ useEffect(() => {
   const renderPage = () => {
     switch (activePage) {
       case 'All Tickets':
-        return <MyTicketsPage title="My Tickets" isDark={isDark} selectedTicketId={selectedTicketId} onOpenTicket={handleOpenTicket} onBack={handleBackToList} onRaise={() => setActivePage('Create Ticket')} onOpenKB={openKnowledgeBase} canViewClassification={can('VIEW_CLASSIFICATION')} />;
+        return <MyTicketsPage title="All Tickets" isDark={isDark} selectedTicketId={selectedTicketId} onOpenTicket={handleOpenTicket} onBack={handleBackToList} onRaise={() => setActivePage('Create Ticket')} onOpenKB={openKnowledgeBase} canViewClassification={can('VIEW_CLASSIFICATION')} />;
       case 'Ticket Queue':
       case 'My queue':
         if (!can('VIEW_AGENT_QUEUE')) {
@@ -3086,7 +3100,6 @@ useEffect(() => {
         setActivePage('My Tickets');
         setSelectedTicketId(null);
       }} />;
-      case 'AI Assistant':  return <AIAssistantPage isDark={isDark} chat={aiChat} setChat={setAiChat} />;
       case 'Reports':       return <ReportsPage isDark={isDark} />;
       case 'Knowledge Base':return <KnowledgeBaseWorkspace isDark={isDark} initialArticleId={knowledgeArticleId} />;
       case 'Users':         return <UsersPage isDark={isDark} />;
@@ -3432,11 +3445,8 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Main two-column */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
                 {/* Recent Tickets table */}
-                <div className={`xl:col-span-2 rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+                <div className={`rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                   <div className={`flex items-start justify-between px-5 pt-5 pb-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-200'}`}>
                     <div>
                       <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Recent Tickets</h2>
@@ -3482,62 +3492,6 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* AI Assistant panel */}
-                <div className={`rounded-2xl border flex flex-col ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`} style={{ minHeight: 440 }}>
-                  {/* Header */}
-                  <div className={`flex items-center gap-3 px-4 pt-4 pb-3 border-b ${isDark ? 'border-gray-800' : 'border-gray-200'}`}>
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shrink-0">
-                      <Bot className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>AI Assistant</p>
-                        <span className="text-[10px] font-bold bg-blue-600 text-white px-1.5 py-0.5 rounded-full">BETA</span>
-                      </div>
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>Powered by AITicketPilot AI Agent</p>
-                    </div>
-                  </div>
-
-                  {/* Chat */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {aiChat.map((m, i) => (
-                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[88%] px-3.5 py-2.5 text-sm rounded-2xl ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : isDark ? 'bg-gray-800 text-gray-200 rounded-bl-sm' : 'bg-gray-100 text-gray-800 rounded-bl-sm'}`}>
-                          {m.text}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Quick actions */}
-                  <div className={`px-4 pb-3 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
-                    <div className="flex flex-wrap gap-2">
-                      {AI_QUICK_ACTIONS.slice(0, 2).map(a => (
-                        <button key={a} onClick={() => sendAi(a)} className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${isDark ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                          <Zap className="w-3 h-3 text-amber-500" /> {a}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Input */}
-                  <div className="p-3">
-                    <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-                      <input
-                        value={aiInput}
-                        onChange={e => setAiInput(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && sendAi()}
-                        placeholder="Ask AI anything..."
-                        className={`flex-1 bg-transparent outline-none text-sm ${isDark ? 'text-white placeholder-gray-600' : 'text-gray-900 placeholder-gray-400'}`}
-                      />
-                      <button onClick={() => sendAi()} className="w-8 h-8 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center transition-colors shrink-0">
-                        <Send className="w-3.5 h-3.5 text-white" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Ticket Overview + Tickets by Priority */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <div className={`xl:col-span-2 p-5 rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
@@ -3573,15 +3527,6 @@ useEffect(() => {
           )}
         </main>
       </div>
-
-      {/* Floating chat button */}
-      <button
-        onClick={() => setActivePage('AI Assistant')}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-xl flex items-center justify-center transition-all z-50"
-      >
-        <MessageSquare className="w-6 h-6" />
-        <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center">3</span>
-      </button>
     </div>
   );
 }

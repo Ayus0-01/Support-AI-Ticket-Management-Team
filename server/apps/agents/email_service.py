@@ -6,9 +6,13 @@ EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, EMAIL_USE_TLS, EMA
 Does NOT fabricate credentials or mock successful email delivery when email is unconfigured.
 """
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
+
 from decouple import config
 from django.core.mail import get_connection, EmailMultiAlternatives
+
+from AIticket.db import email_logs_collection
 
 logger = logging.getLogger(__name__)
 
@@ -162,27 +166,70 @@ def send_escalation_email(
     email_config_override: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Sends an escalation notification email via SMTP using Django's email infrastructure.
-    If SMTP/Email configuration is missing, returns UNCONFIGURED status cleanly without fake success.
-    """
-    cfg = email_config_override if email_config_override is not None else get_email_config()
+    Sends an escalation notification email via SMTP.
 
-    target_recipient = recipient_email or cfg.get("support_email") or cfg.get("from_email")
+    Every delivery attempt is recorded in the email log.
+    """
+
+    cfg = (
+        email_config_override
+        if email_config_override is not None
+        else get_email_config()
+    )
+
+    target_recipient = (
+        recipient_email
+        or cfg.get("support_email")
+        or cfg.get("from_email")
+    )
+
+    ticket = (
+        escalation_input.get("ticket")
+        or escalation_input.get("ticket_info")
+        or {}
+    )
+
+    diagnosis = escalation_input.get("diagnosis") or {}
+    validation = escalation_input.get("validation") or {}
+
+    escalation_reason = (
+        escalation_input.get("escalation_reason")
+        or escalation_input.get(
+            "reason",
+            "Validation failed / Escalation required"
+        )
+    )
+
+    jira_result = (
+        escalation_input.get("jira_result")
+        or escalation_input.get("jira")
+        or {}
+    )
+
+    recommended_action = escalation_input.get(
+        "recommended_action",
+        ""
+    )
 
     if not is_email_configured(cfg) or not target_recipient:
-        return {
+        result = {
             "status": "UNCONFIGURED",
             "sent": False,
             "recipient": target_recipient,
-            "reason": "SMTP email configuration (EMAIL_HOST, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD) is missing or incomplete.",
+            "reason": (
+                "SMTP email configuration "
+                "(EMAIL_HOST, EMAIL_HOST_USER, "
+                "EMAIL_HOST_PASSWORD) is missing or incomplete."
+            ),
         }
 
-    ticket = escalation_input.get("ticket") or escalation_input.get("ticket_info") or {}
-    diagnosis = escalation_input.get("diagnosis") or {}
-    validation = escalation_input.get("validation") or {}
-    escalation_reason = escalation_input.get("escalation_reason") or escalation_input.get("reason", "Validation failed / Escalation required")
-    jira_result = escalation_input.get("jira_result") or escalation_input.get("jira") or {}
-    recommended_action = escalation_input.get("recommended_action", "")
+        save_email_log(
+            ticket=ticket,
+            email_type="ESCALATION",
+            result=result,
+        )
+
+        return result
 
     content = build_escalation_email_content(
         ticket=ticket,
@@ -212,34 +259,65 @@ def send_escalation_email(
             to=[target_recipient],
             connection=connection,
         )
-        msg.attach_alternative(content["html_body"], "text/html")
+
+        msg.attach_alternative(
+            content["html_body"],
+            "text/html",
+        )
 
         sent_count = msg.send(fail_silently=False)
 
         if sent_count > 0:
-            return {
+            result = {
                 "status": "SUCCESS",
                 "sent": True,
                 "recipient": target_recipient,
                 "subject": content["subject"],
-                "reason": "Escalation notification email sent successfully.",
+                "reason": (
+                    "Escalation notification email "
+                    "sent successfully."
+                ),
             }
         else:
-            return {
+            result = {
                 "status": "FAILED",
                 "sent": False,
                 "recipient": target_recipient,
-                "reason": "Email backend reported zero messages sent.",
+                "subject": content["subject"],
+                "reason": (
+                    "Email backend reported zero "
+                    "messages sent."
+                ),
             }
 
+        save_email_log(
+            ticket=ticket,
+            email_type="ESCALATION",
+            result=result,
+        )
+
+        return result
+
     except Exception as e:
-        logger.error(f"Failed to send escalation email: {str(e)}")
-        return {
+        logger.error(
+            f"Failed to send escalation email: {str(e)}"
+        )
+
+        result = {
             "status": "FAILED",
             "sent": False,
             "recipient": target_recipient,
+            "subject": content["subject"],
             "reason": f"SMTP Email connection error: {str(e)}",
         }
+
+        save_email_log(
+            ticket=ticket,
+            email_type="ESCALATION",
+            result=result,
+        )
+
+        return result
 
 
 def build_resolution_email_content(
@@ -311,24 +389,58 @@ def send_resolution_email(
     email_config_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Sends an accepted resolution notification email to the ticket requester via SMTP using Django's email infrastructure.
-    If SMTP configuration or recipient email is missing, returns UNCONFIGURED status cleanly.
-    """
-    cfg = email_config_override if email_config_override is not None else get_email_config()
+    Sends an accepted AI-resolution notification email
+    to the ticket requester.
 
-    requester = ticket.get("requester") if isinstance(ticket, dict) else {}
-    requester_email = requester.get("email") if isinstance(requester, dict) else None
-    target_recipient = recipient_email or requester_email
+    Every delivery attempt is recorded in the email log.
+    """
+
+    cfg = (
+        email_config_override
+        if email_config_override is not None
+        else get_email_config()
+    )
+
+    requester = (
+        ticket.get("requester")
+        if isinstance(ticket, dict)
+        else {}
+    )
+
+    requester_email = (
+        requester.get("email")
+        if isinstance(requester, dict)
+        else None
+    )
+
+    target_recipient = (
+        recipient_email
+        or requester_email
+    )
 
     if not is_email_configured(cfg) or not target_recipient:
-        return {
+        result = {
             "status": "UNCONFIGURED",
             "sent": False,
             "recipient": target_recipient,
-            "reason": "SMTP email configuration is missing or recipient email is unconfigured.",
+            "reason": (
+                "SMTP email configuration is missing "
+                "or recipient email is unconfigured."
+            ),
         }
 
-    content = build_resolution_email_content(ticket=ticket, response=response)
+        save_email_log(
+            ticket=ticket,
+            email_type="RESOLUTION",
+            result=result,
+        )
+
+        return result
+
+    content = build_resolution_email_content(
+        ticket=ticket,
+        response=response,
+    )
 
     try:
         connection = get_connection(
@@ -349,35 +461,65 @@ def send_resolution_email(
             to=[target_recipient],
             connection=connection,
         )
-        msg.attach_alternative(content["html_body"], "text/html")
+
+        msg.attach_alternative(
+            content["html_body"],
+            "text/html",
+        )
 
         sent_count = msg.send(fail_silently=False)
 
         if sent_count > 0:
-            return {
+            result = {
                 "status": "SUCCESS",
                 "sent": True,
                 "recipient": target_recipient,
                 "subject": content["subject"],
-                "reason": "Resolution notification email sent successfully.",
+                "reason": (
+                    "Resolution notification email "
+                    "sent successfully."
+                ),
             }
         else:
-            return {
+            result = {
                 "status": "FAILED",
                 "sent": False,
                 "recipient": target_recipient,
-                "reason": "Email backend reported zero messages sent.",
+                "subject": content["subject"],
+                "reason": (
+                    "Email backend reported zero "
+                    "messages sent."
+                ),
             }
 
+        save_email_log(
+            ticket=ticket,
+            email_type="RESOLUTION",
+            result=result,
+        )
+
+        return result
+
     except Exception as e:
-        logger.error(f"Failed to send resolution email: {str(e)}")
-        return {
+        logger.error(
+            f"Failed to send resolution email: {str(e)}"
+        )
+
+        result = {
             "status": "FAILED",
             "sent": False,
             "recipient": target_recipient,
+            "subject": content["subject"],
             "reason": f"SMTP Email connection error: {str(e)}",
         }
 
+        save_email_log(
+            ticket=ticket,
+            email_type="RESOLUTION",
+            result=result,
+        )
+
+        return result
 
 def build_not_solved_email_content(
     ticket: Dict[str, Any],
@@ -445,22 +587,47 @@ def send_not_solved_email(
     email_config_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Sends a notification email to the support team when a user reports that a resolution did not solve their issue.
-    If SMTP configuration or recipient email is missing, returns UNCONFIGURED status cleanly.
-    """
-    cfg = email_config_override if email_config_override is not None else get_email_config()
+    Sends a notification email to the support team when a user
+    reports that the provided resolution did not solve the issue.
 
-    target_recipient = recipient_email or cfg.get("support_email") or cfg.get("from_email")
+    Every delivery attempt is recorded in the email log.
+    """
+
+    cfg = (
+        email_config_override
+        if email_config_override is not None
+        else get_email_config()
+    )
+
+    target_recipient = (
+        recipient_email
+        or cfg.get("support_email")
+        or cfg.get("from_email")
+    )
 
     if not is_email_configured(cfg) or not target_recipient:
-        return {
+        result = {
             "status": "UNCONFIGURED",
             "sent": False,
             "recipient": target_recipient,
-            "reason": "SMTP email configuration is missing or recipient email is unconfigured.",
+            "reason": (
+                "SMTP email configuration is missing "
+                "or recipient email is unconfigured."
+            ),
         }
 
-    content = build_not_solved_email_content(ticket=ticket, feedback=feedback)
+        save_email_log(
+            ticket=ticket,
+            email_type="NOT_SOLVED",
+            result=result,
+        )
+
+        return result
+
+    content = build_not_solved_email_content(
+        ticket=ticket,
+        feedback=feedback,
+    )
 
     try:
         connection = get_connection(
@@ -481,7 +648,115 @@ def send_not_solved_email(
             to=[target_recipient],
             connection=connection,
         )
-        msg.attach_alternative(content["html_body"], "text/html")
+
+        msg.attach_alternative(
+            content["html_body"],
+            "text/html",
+        )
+
+        sent_count = msg.send(fail_silently=False)
+
+        if sent_count > 0:
+            result = {
+                "status": "SUCCESS",
+                "sent": True,
+                "recipient": target_recipient,
+                "subject": content["subject"],
+                "reason": (
+                    "Resolution not solved notification "
+                    "email sent successfully."
+                ),
+            }
+        else:
+            result = {
+                "status": "FAILED",
+                "sent": False,
+                "recipient": target_recipient,
+                "subject": content["subject"],
+                "reason": (
+                    "Email backend reported zero "
+                    "messages sent."
+                ),
+            }
+
+        save_email_log(
+            ticket=ticket,
+            email_type="NOT_SOLVED",
+            result=result,
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(
+            f"Failed to send resolution not solved email: {str(e)}"
+        )
+
+        result = {
+            "status": "FAILED",
+            "sent": False,
+            "recipient": target_recipient,
+            "subject": content["subject"],
+            "reason": f"SMTP Email connection error: {str(e)}",
+        }
+
+        save_email_log(
+            ticket=ticket,
+            email_type="NOT_SOLVED",
+            result=result,
+        )
+
+        return result
+
+# ============================================================
+# M3 ADDITIONAL EMAIL NOTIFICATIONS
+# Ticket Created + Ticket Resolved
+# ============================================================
+
+def _send_generic_email(
+    subject: str,
+    text_body: str,
+    html_body: str,
+    recipient_email: Optional[str] = None,
+    email_config_override: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Common SMTP sender used by ticket-created and resolved notifications.
+    Does not report success when email is unconfigured or sending fails.
+    """
+    cfg = email_config_override if email_config_override is not None else get_email_config()
+
+    target_recipient = recipient_email or cfg.get("support_email") or cfg.get("from_email")
+
+    if not is_email_configured(cfg) or not target_recipient:
+        return {
+            "status": "UNCONFIGURED",
+            "sent": False,
+            "recipient": target_recipient,
+            "reason": "SMTP email configuration is missing or recipient email is unconfigured.",
+        }
+
+    try:
+        connection = get_connection(
+            backend="django.core.mail.backends.smtp.EmailBackend",
+            host=cfg.get("smtp_host"),
+            port=cfg.get("smtp_port", 587),
+            username=cfg.get("smtp_user"),
+            password=cfg.get("smtp_password"),
+            use_tls=cfg.get("use_tls", True),
+            use_ssl=cfg.get("use_ssl", False),
+            fail_silently=False,
+        )
+
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=cfg.get("from_email"),
+            to=[target_recipient],
+            connection=connection,
+        )
+
+        msg.attach_alternative(html_body, "text/html")
 
         sent_count = msg.send(fail_silently=False)
 
@@ -490,24 +765,314 @@ def send_not_solved_email(
                 "status": "SUCCESS",
                 "sent": True,
                 "recipient": target_recipient,
-                "subject": content["subject"],
-                "reason": "Resolution not solved notification email sent successfully.",
-            }
-        else:
-            return {
-                "status": "FAILED",
-                "sent": False,
-                "recipient": target_recipient,
-                "reason": "Email backend reported zero messages sent.",
+                "subject": subject,
+                "reason": "Email sent successfully.",
             }
 
-    except Exception as e:
-        logger.error(f"Failed to send resolution not solved email: {str(e)}")
         return {
             "status": "FAILED",
             "sent": False,
             "recipient": target_recipient,
+            "subject": subject,
+            "reason": "Email backend reported zero messages sent.",
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to send email: {str(e)}")
+
+        return {
+            "status": "FAILED",
+            "sent": False,
+            "recipient": target_recipient,
+            "subject": subject,
             "reason": f"SMTP Email connection error: {str(e)}",
         }
 
 
+def build_ticket_created_email_content(
+    ticket: Dict[str, Any],
+) -> Dict[str, str]:
+    """
+    Builds customer/support notification content when a new ticket is created.
+    """
+
+    ticket_id = (
+        ticket.get("ticket_id")
+        or ticket.get("ticket_number")
+        or "N/A"
+    )
+
+    subject_line = ticket.get("subject", "Support Ticket")
+
+    description = ticket.get("description", "N/A")
+    category = ticket.get("category", "N/A")
+    priority = ticket.get("priority", "N/A")
+    status_value = ticket.get("status", "Open")
+
+    email_subject = f"[Ticket Created] #{ticket_id}: {subject_line}"
+
+    text_body = (
+        "SUPPORT TICKET CREATED\n"
+        "----------------------------------------\n"
+        f"Ticket ID: {ticket_id}\n"
+        f"Subject: {subject_line}\n"
+        f"Category: {category}\n"
+        f"Priority: {priority}\n"
+        f"Status: {status_value}\n\n"
+        "DESCRIPTION:\n"
+        f"{description}\n\n"
+        "Your support ticket has been successfully created."
+    )
+
+    html_body = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #0275d8;">Support Ticket Created</h2>
+
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Ticket ID:</td>
+            <td style="padding: 6px;">{ticket_id}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Subject:</td>
+            <td style="padding: 6px;">{subject_line}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Category:</td>
+            <td style="padding: 6px;">{category}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Priority:</td>
+            <td style="padding: 6px;">{priority}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Status:</td>
+            <td style="padding: 6px;">{status_value}</td>
+          </tr>
+        </table>
+
+        <h3>Description</h3>
+        <p style="background: #f8f9fa; padding: 10px;">
+            {description}
+        </p>
+
+        <p>
+            Your support ticket has been successfully created.
+        </p>
+      </body>
+    </html>
+    """
+
+    return {
+        "subject": email_subject,
+        "text_body": text_body,
+        "html_body": html_body,
+    }
+
+
+def send_ticket_created_email(
+    ticket: Dict[str, Any],
+    recipient_email: Optional[str] = None,
+    email_config_override: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Sends a notification when a support ticket is created.
+    """
+
+    requester = ticket.get("requester") if isinstance(ticket, dict) else {}
+
+    requester_email = (
+        requester.get("email")
+        if isinstance(requester, dict)
+        else None
+    )
+
+    target_recipient = recipient_email or requester_email
+
+    content = build_ticket_created_email_content(ticket)
+
+    result = _send_generic_email(
+    subject=content["subject"],
+    text_body=content["text_body"],
+    html_body=content["html_body"],
+    recipient_email=target_recipient,
+    email_config_override=email_config_override,
+)
+
+    save_email_log(
+    ticket=ticket,
+    email_type="TICKET_CREATED",
+    result=result,
+)
+
+    return result
+
+
+def build_resolved_email_content(
+    ticket: Dict[str, Any],
+    resolution: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    """
+    Builds customer notification content when a ticket is resolved.
+    """
+
+    ticket_id = (
+        ticket.get("ticket_id")
+        or ticket.get("ticket_number")
+        or "N/A"
+    )
+
+    subject_line = ticket.get("subject", "Support Ticket")
+
+    resolution = resolution or {}
+
+    summary = (
+        resolution.get("summary")
+        or "Your support ticket has been resolved."
+    )
+
+    email_subject = f"[Ticket Resolved] #{ticket_id}: {subject_line}"
+
+    text_body = (
+        "SUPPORT TICKET RESOLVED\n"
+        "----------------------------------------\n"
+        f"Ticket ID: {ticket_id}\n"
+        f"Subject: {subject_line}\n\n"
+        "RESOLUTION:\n"
+        f"{summary}\n\n"
+        "Your support ticket has been marked as resolved."
+    )
+
+    html_body = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+
+        <h2 style="color: #5cb85c;">
+            Support Ticket Resolved
+        </h2>
+
+        <p>
+            <strong>Ticket ID:</strong> {ticket_id}
+        </p>
+
+        <p>
+            <strong>Subject:</strong> {subject_line}
+        </p>
+
+        <h3>Resolution</h3>
+
+        <p style="
+            background: #f8f9fa;
+            padding: 10px;
+            border-left: 4px solid #5cb85c;
+        ">
+            {summary}
+        </p>
+
+        <p>
+            Your support ticket has been marked as resolved.
+        </p>
+
+      </body>
+    </html>
+    """
+
+    return {
+        "subject": email_subject,
+        "text_body": text_body,
+        "html_body": html_body,
+    }
+
+
+def send_resolved_email(
+    ticket: Dict[str, Any],
+    resolution: Optional[Dict[str, Any]] = None,
+    recipient_email: Optional[str] = None,
+    email_config_override: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Sends a notification to the requester when a ticket is resolved.
+    """
+
+    requester = ticket.get("requester") if isinstance(ticket, dict) else {}
+
+    requester_email = (
+        requester.get("email")
+        if isinstance(requester, dict)
+        else None
+    )
+
+    target_recipient = recipient_email or requester_email
+
+    content = build_resolved_email_content(
+        ticket=ticket,
+        resolution=resolution,
+    )
+
+    result = _send_generic_email(
+    subject=content["subject"],
+    text_body=content["text_body"],
+    html_body=content["html_body"],
+    recipient_email=target_recipient,
+    email_config_override=email_config_override,
+)
+
+    save_email_log(
+    ticket=ticket,
+    email_type="RESOLVED",
+    result=result,
+)
+
+    return result
+        
+        
+        
+        
+        
+    
+
+# ============================================================
+# EMAIL LOGGING
+# ============================================================
+
+def save_email_log(
+    ticket: Dict[str, Any],
+    email_type: str,
+    result: Dict[str, Any],
+) -> None:
+    """
+    Saves an email delivery attempt to MongoDB.
+
+    Email logging must never break the main email workflow.
+    """
+
+    try:
+        ticket_id = (
+            ticket.get("ticket_id")
+            or ticket.get("ticket_number")
+            or "N/A"
+        )
+
+        log_document = {
+            "ticket_id": ticket_id,
+            "email_type": email_type,
+            "recipient": result.get("recipient"),
+            "subject": result.get("subject"),
+            "status": result.get("status"),
+            "sent": result.get("sent", False),
+            "reason": result.get("reason"),
+            "created_at": datetime.now(timezone.utc),
+        }
+
+        email_logs_collection.insert_one(log_document)
+
+    except Exception as e:
+        logger.error(
+            f"Failed to save email log for ticket "
+            f"{ticket.get('ticket_id', 'N/A')}: {str(e)}"
+        )

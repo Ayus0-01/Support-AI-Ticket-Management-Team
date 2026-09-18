@@ -41,6 +41,13 @@ export default function UserResolutionCard({
   const [actionMessage, setActionMessage] = useState("");
 
   const responseId = ticket.latest_response_id;
+  const ticketInfo = ticket as Ticket & {
+    assignee?: string | null;
+    ai_workflow_status?: string | null;
+  };
+
+  const assignedAgent = ticketInfo.assignee;
+  const aiWorkflowStatus = ticketInfo.ai_workflow_status;
 
   useEffect(() => {
     let active = true;
@@ -76,7 +83,30 @@ export default function UserResolutionCard({
     };
   }, [responseId]);
 
-  if (!ticket.resolution_status || (ticket.resolution_status !== "SENT" && ticket.resolution_status !== "EDITED_SENT")) {
+    const hasCustomerResolution =
+    ticket.resolution_status === "SENT" ||
+    ticket.resolution_status === "EDITED_SENT";
+
+  const isWaitingForAgent =
+    aiWorkflowStatus === "WAITING_FOR_AGENT";
+
+  const isAiProcessing =
+    aiWorkflowStatus === "STARTING" ||
+    aiWorkflowStatus === "IN_PROGRESS" ||
+    aiWorkflowStatus === "PROCESSING";
+
+  const isAgentHandling =
+    ticket.status === "In Progress" &&
+    !hasCustomerResolution &&
+    !isAiProcessing &&
+    !isWaitingForAgent;
+
+  if (
+    !hasCustomerResolution &&
+    !assignedAgent &&
+    !isWaitingForAgent &&
+    !isAiProcessing
+  ) {
     return null;
   }
 
@@ -92,7 +122,7 @@ export default function UserResolutionCard({
         was_helpful: true,
       });
       setActionDone(true);
-      setActionMessage("Thank you! Your confirmation was sent to the support agent for review.");
+      setActionMessage("Thanks! Your confirmation was recorded and the ticket is now resolved through the AI resolution flow.");
       await onConfirmed?.();
     } catch (submitError) {
       setError(getErrorMessage(submitError, "Could not confirm resolution."));
@@ -115,7 +145,7 @@ export default function UserResolutionCard({
       });
       setActionDone(true);
       setShowRejectForm(false);
-      setActionMessage("Feedback submitted. Support agent will review your ticket.");
+      setActionMessage("The AI solution was rejected. Your ticket has been routed to human support for resolution.");
       await onConfirmed?.();
     } catch (submitError) {
       setError(getErrorMessage(submitError, "Could not submit feedback."));
@@ -130,6 +160,68 @@ export default function UserResolutionCard({
         ? "border-emerald-900/60 bg-emerald-950/20 text-white"
         : "border-emerald-200 bg-emerald-50/40 text-slate-900"
     }`}>
+            <div className={`mb-4 rounded-2xl border p-4 ${
+        isDark
+          ? "border-gray-800 bg-gray-950/70"
+          : "border-slate-200 bg-white"
+      }`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={`text-xs font-bold uppercase tracking-wider ${
+              isDark ? "text-gray-400" : "text-slate-500"
+            }`}>
+              Ticket Support Status
+            </p>
+
+            <p className={`mt-1 text-sm font-semibold ${
+              isDark ? "text-white" : "text-slate-900"
+            }`}>
+              {assignedAgent
+                ? `Assigned to ${assignedAgent}`
+                : "Waiting for Support Agent"}
+            </p>
+          </div>
+
+          <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+            assignedAgent
+              ? isDark
+                ? "bg-blue-950 text-blue-300"
+                : "bg-blue-50 text-blue-700"
+              : isDark
+                ? "bg-amber-950 text-amber-300"
+                : "bg-amber-50 text-amber-700"
+          }`}>
+            {assignedAgent ? "AGENT ASSIGNED" : "WAITING"}
+          </span>
+        </div>
+
+        {isAiProcessing && (
+          <p className={`mt-3 text-sm ${
+            isDark ? "text-gray-300" : "text-slate-600"
+          }`}>
+            Your assigned agent is handling your ticket while AI analyzes
+            the issue and prepares a suggested resolution.
+          </p>
+        )}
+
+        {isWaitingForAgent && (
+          <p className={`mt-3 text-sm ${
+            isDark ? "text-amber-300" : "text-amber-700"
+          }`}>
+            We are waiting for an available Support Agent. AI resolution
+            will start after an agent is assigned.
+          </p>
+        )}
+
+        {isAgentHandling && (
+          <p className={`mt-3 text-sm ${
+            isDark ? "text-gray-300" : "text-slate-600"
+          }`}>
+            Your AI resolution was not suitable, so your assigned Support
+            Agent will continue handling the ticket.
+          </p>
+        )}
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

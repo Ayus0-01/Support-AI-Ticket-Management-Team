@@ -39,4 +39,17 @@ urlpatterns = [
         "api/agents/",
         include("apps.agents.urls"),
     ),
+
+    path(
+    "api/email/",
+    include("apps.agents.email_urls"),
+    ),
+
+    path(
+        "api/jira/",
+        include("apps.agents.jira_urls")
+    ),
+
+
+
 ]

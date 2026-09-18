@@ -128,7 +128,12 @@ class DiagnosisAgent(BaseAgent):
         category = (input_data.get("category") or "").strip()
         subcategory = (input_data.get("subcategory") or "").strip()
         severity = (input_data.get("severity") or "").strip()
-        priority = (input_data.get("priority") or "").strip()
+        priority_data = input_data.get("priority") or ""
+
+        if isinstance(priority_data, dict):
+            priority = str(priority_data.get("value") or "").strip()
+        else:
+            priority = str(priority_data).strip()
 
         # Handle missing or insufficient ticket information
         if not subject and not description:
