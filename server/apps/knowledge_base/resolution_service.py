@@ -1,4 +1,5 @@
 import time
+from apps.agents.orchestrator import log_activity
 
 from .ticket_retrieval import (
     retrieve_for_ticket,

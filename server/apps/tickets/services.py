@@ -2,8 +2,14 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pymongo import ReturnDocument
 import threading
+import logging
 import re
 import math
+
+logger = logging.getLogger(__name__)
+
+from apps.notifications.services import create_notification
+from apps.agents.email_service import send_ticket_created_email
 
 from AIticket.db import (
     tickets_collection, 
@@ -198,8 +204,58 @@ def classify_and_update_ticket(ticket_id):
             }
         },
     )
+        # Send the ticket-created email only after M1 classification
+    # has populated category and priority.
+    try:
+        classified_ticket = tickets_collection.find_one(
+            {
+                "ticket_id": ticket_id
+            }
+        )
+
+        if classified_ticket:
+            send_ticket_created_email(
+                ticket=classified_ticket
+            )
+
+    except Exception as email_error:
+        logger.warning(
+            "Ticket-created email failed for %s: %s",
+            ticket_id,
+            email_error,
+        )
+        # Run M3 Multi-Agent AI workflow after M1 classification.
+    try:
+        from apps.agents.orchestrator import execute_orchestration_pipeline
+
+        updated_ticket = tickets_collection.find_one(
+            {
+                "ticket_id": ticket_id
+            }
+        )
+
+        m3_result = execute_orchestration_pipeline(
+            ticket_id=ticket_id,
+            ticket_data=updated_ticket,
+            confidence_threshold=0.70,
+        )
+
+        result["m3"] = m3_result
+
+    except Exception as m3_error:
+        logger.exception(
+            "M3 orchestration failed for ticket %s: %s",
+            ticket_id,
+            m3_error,
+        )
+
+        result["m3"] = {
+            "status": "FAILED",
+            "reason": str(m3_error),
+        }
 
     return result
+
 
 def enqueue_classification(ticket_id):
     """
@@ -456,40 +512,53 @@ def check_duplicate_tickets(
 
     return duplicates
 
-def get_agent_queue():
+def get_agent_queue(agent_username=None):
     """
-    Get all tickets for agent queue and ticket history.
-    Active tickets are ordered by SLA breach urgency, followed by resolved/closed tickets.
+    Get tickets for the agent queue and ticket history.
+
+    If an agent username is provided, only tickets assigned to that
+    agent are returned.
+
+    Active tickets are ordered by SLA breach urgency, followed by
+    resolved/closed tickets.
     """
     from .queue import sort_ticket_queue
 
+    agent_filter = {}
+
+    if agent_username:
+        agent_filter["assignee"] = agent_username
+
+    active_filter = {
+        **agent_filter,
+        "status": {
+            "$in": [
+                "Open",
+                "In Progress",
+            ]
+        }
+    }
+
+    resolved_filter = {
+        **agent_filter,
+        "status": {
+            "$in": [
+                "Resolved",
+                "Closed",
+            ]
+        }
+    }
+
     active_tickets = list(
-        tickets_collection.find(
-            {
-                "status": {
-                    "$in": [
-                        "Open",
-                        "In Progress",
-                    ]
-                }
-            }
-        )
+        tickets_collection.find(active_filter)
     )
 
     resolved_tickets = list(
-        tickets_collection.find(
-            {
-                "status": {
-                    "$in": [
-                        "Resolved",
-                        "Closed",
-                    ]
-                }
-            }
-        )
+        tickets_collection.find(resolved_filter)
     )
 
     sorted_active = sort_ticket_queue(active_tickets)
+
     sorted_resolved = sorted(
         resolved_tickets,
         key=lambda t: str(t.get("created_at") or ""),
@@ -980,6 +1049,23 @@ def assign_ticket(ticket_id, assignee_username, actor_username=None):
     ticket = tickets_collection.find_one({"ticket_id": ticket_id})
     if not ticket:
         return None
+    assignee_user = users_collection.find_one(
+        {
+            "username": assignee_username,
+            "role": "Agent",
+        },
+        {
+            "username": 1,
+            "role": 1,
+            "is_active": 1,
+        },
+    )
+
+    if not assignee_user:
+        return None
+
+    if assignee_user.get("is_active") is False:
+        return None
 
     previous_assignee = ticket.get("assignee") or "Unassigned"
     
@@ -992,7 +1078,22 @@ def assign_ticket(ticket_id, assignee_username, actor_username=None):
             }
         },
     )
-
+    try:
+        create_notification(
+            recipient=assignee_username,
+            title="New Ticket Assigned",
+            message=(
+                f"Ticket {ticket_id} has been assigned to you."
+            ),
+            notification_type="info",
+            ticket_id=ticket_id,
+        )
+    except Exception as notification_error:
+        logger.warning(
+            "Agent assignment notification failed for %s: %s",
+            ticket_id,
+            notification_error,
+        )
     actor_display = actor_username or "Support Manager"
     comments_collection.insert_one({
         "ticket_id": ticket_id,
@@ -1006,16 +1107,45 @@ def assign_ticket(ticket_id, assignee_username, actor_username=None):
     ticket["assignee"] = assignee_username
     ticket["updated_at"] = now
     ticket["_id"] = str(ticket["_id"])
+
+# Send assignment email only when the ticket moves
+# to a different Support Agent.
+    if previous_assignee != assignee_username:
+        try:
+            from apps.agents.email_service import send_ticket_assigned_email
+
+            agent_email = assignee_user.get("email")
+
+            if agent_email:
+                email_ticket = dict(ticket)
+
+                threading.Thread(
+                    target=send_ticket_assigned_email,
+                    kwargs={
+                        "ticket": email_ticket,
+                        "agent_username": assignee_username,
+                        "recipient_email": agent_email,
+                    },
+                    daemon=True,
+                ).start()
+
+        except Exception as email_error:
+            logger.warning(
+            "Ticket assignment email failed for %s: %s",
+            ticket_id,
+            email_error,
+        )
+
     return ticket
 
 
 def get_agents_workload():
     """
-    Calculate real-time workload for all Support Agents and Managers.
-    Includes active assigned ticket count, total resolved count, and assigned tickets list.
+    Calculate real-time workload for Support Agents only.
+    Managers and Admins are not eligible for ticket assignment.
     """
     raw_agents = users_collection.find(
-        {"role": {"$in": ["Agent", "Support Agent", "Support Manager", "Manager"]}},
+        {"role": "Agent"},
         {"username": 1, "email": 1, "role": 1, "is_active": 1}
     )
     agents = sorted(list(raw_agents), key=lambda u: u.get("username", ""))

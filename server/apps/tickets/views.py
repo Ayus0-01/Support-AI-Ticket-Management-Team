@@ -1,4 +1,7 @@
 import threading
+import logging
+logger = logging.getLogger(__name__)
+from apps.notifications.services import create_notification
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -11,7 +14,7 @@ from rest_framework import status
 
 from rest_framework_simplejwt.tokens import AccessToken
 from bson import ObjectId
-from apps.agents.email_service import send_ticket_created_email
+
 from AIticket.db import (
     users_collection,
     tickets_collection,
@@ -68,6 +71,8 @@ from apps.knowledge_base.review_service import (
     submit_feedback,
     send_manual_resolution,
 )
+
+
 
 
 @api_view(["GET"])
@@ -213,20 +218,23 @@ def create_ticket_view(request):
        requester
     )
 
-    def send_ticket_created_email_background(ticket_data):
-        try:
-            send_ticket_created_email(ticket=ticket_data)
-        except Exception as email_error:
-            logger.warning(
-                f"Ticket-created notification email failed: {email_error}"
-        )
+    try:
+        create_notification(
+            recipient=requester.get("username"),
+            title="Ticket Created",
+            message=(
+            f"Your ticket {ticket.get('ticket_id')} "
+            "has been created successfully."
+        ),
+        notification_type="success",
+        ticket_id=ticket.get("ticket_id"),
+    )
+    except Exception as notification_error:
+        logger.warning(
+             f"Ticket creation notification failed: {notification_error}"
+    )
 
-
-    threading.Thread(
-       target=send_ticket_created_email_background,
-       args=(ticket,),
-       daemon=True,
-    ).start()
+    
 
     enqueue_classification(
         ticket["ticket_id"]
@@ -351,10 +359,13 @@ def get_ticket_detail_view(request, ticket_id):
     if not ticket:
         return Response(
             {
-                "message": "Ticket not found."
+                "message": (
+                    "Assignment failed. The ticket may not exist, "
+                    "or the selected user is not an active Agent."
+                )
             },
-            status=status.HTTP_404_NOT_FOUND
-        )
+        status=status.HTTP_404_NOT_FOUND,
+    )
 
     safe_ticket = EmployeeTicketSerializer(
         ticket
@@ -590,7 +601,12 @@ def agent_queue_view(request):
             status=status.HTTP_403_FORBIDDEN
         )
 
-    tickets = get_agent_queue()
+    if role == "Agent":
+        tickets = get_agent_queue(
+            agent_username=user.get("username")
+    )
+    else:
+        tickets = get_agent_queue()
 
     # Queue documents can carry internal Mongo references such as
     # ``latest_response_id``. Use the same public ticket representation as
@@ -2172,7 +2188,13 @@ def assign_ticket_view(request, ticket_id):
     if not ticket:
         return Response({"message": "Ticket not found or assignment failed."}, status=status.HTTP_404_NOT_FOUND)
         
-    return Response({"message": "Ticket assigned successfully.", "ticket": ticket}, status=status.HTTP_200_OK)
+    return Response(
+           _make_json_safe({
+               "message": "Ticket assigned successfully.",
+               "ticket": ticket,
+            }),
+            status=status.HTTP_200_OK,
+        )
 
 
 @api_view(["GET"])

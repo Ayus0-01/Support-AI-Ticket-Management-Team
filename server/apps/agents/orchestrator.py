@@ -38,7 +38,7 @@ from apps.knowledge_base.persistence import (
     update_ticket_resolution_state,
 )
 from apps.tickets.services import auto_assign_ticket, transition_ticket_status
-
+from apps.notifications.services import create_notification
 
 
 def log_activity(
@@ -488,6 +488,32 @@ def execute_orchestration_pipeline(
             resolution_status="SENT",
             response_id=response_doc["_id"],
         )
+                # Notify the customer that an AI resolution is ready.
+        try:
+            requester = ticket_data.get("requester") or {}
+            requester_username = requester.get("username")
+
+            if requester_username:
+                create_notification(
+                    recipient=requester_username,
+                    title="AI Resolution Ready",
+                    message=(
+                        f"An AI-based resolution is ready for "
+                        f"ticket {ticket_id}. Please review the suggested solution."
+                    ),
+                    notification_type="success",
+                    ticket_id=ticket_id,
+                )
+        except Exception as notification_error:
+            log_activity(
+                ticket_id=ticket_id,
+                action="AI_RESOLUTION_NOTIFICATION_FAILED",
+                details=f"AI resolution notification failed: {notification_error}",
+                actor="Multi-Agent Orchestrator",
+                workflow_id=workflow_id,
+                agent_name="ResolutionAgent",
+                status="FAILED",
+            )
 
                 # Send AI resolution notification to the customer
         try:

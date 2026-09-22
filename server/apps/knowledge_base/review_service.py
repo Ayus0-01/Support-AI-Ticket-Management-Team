@@ -30,6 +30,7 @@ from apps.tickets.services import (
     transition_ticket_status,
     auto_assign_ticket,
 )
+from apps.notifications.services import create_notification
 
 
 def get_response_for_review(
@@ -599,6 +600,28 @@ def submit_feedback(
                 visibility="INTERNAL",
                 source="AUTO_ASSIGNMENT",
             )
+
+            try:
+                assigned_agent = assigned_ticket.get("assignee")
+
+                if assigned_agent:
+                    create_notification(
+                        recipient=assigned_agent,
+                        title="Customer Rejected AI Resolution",
+                        message=(
+                            f"Customer rejected the AI resolution for "
+                            f"ticket {ticket['ticket_id']}. "
+                            "Please review and resolve the ticket."
+                        ),
+                        notification_type="warning",
+                        ticket_id=ticket["ticket_id"],
+                    )
+            except Exception as notification_error:
+                logger.warning(
+                    "Customer rejection notification failed for %s: %s",
+                    ticket["ticket_id"],
+                    notification_error,
+                )
 
         try:
             send_not_solved_email(

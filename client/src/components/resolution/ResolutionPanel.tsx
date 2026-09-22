@@ -16,6 +16,8 @@ import SufficiencyBadge from "./SufficiencyBadge";
 
 type ResolutionPanelProps = {
   ticketId: string;
+  ticketStatus?: string;
+  resolutionStatus?: string;
   onResponseChanged?: () => Promise<void> | void;
 };
 
@@ -60,6 +62,8 @@ const statusClasses = (status: string) => {
 
 export default function ResolutionPanel({
   ticketId,
+  ticketStatus,
+  resolutionStatus,
   onResponseChanged,
 }: ResolutionPanelProps) {
   const [responses, setResponses] = useState<ResolutionResponse[]>([]);
@@ -117,7 +121,19 @@ export default function ResolutionPanel({
   }, [ticketId]);
 
   const currentResponse = responses[0];
-  const canGenerate = !currentResponse || currentResponse.status === "REJECTED";
+  const ticketIsResolvedOrClosed =
+  ticketStatus === "Resolved" ||
+  ticketStatus === "Closed";
+
+const customerRejected =
+  resolutionStatus === "USER_REJECTED";
+
+const canGenerate =
+  ticketStatus === "In Progress";
+
+const canReviewDraft =
+  !ticketIsResolvedOrClosed &&
+  currentResponse?.status === "DRAFT";
 
   const handleGenerate = async () => {
     try {
@@ -316,10 +332,16 @@ export default function ResolutionPanel({
       <div className="mt-5 flex flex-wrap gap-3">
         {canGenerate && (
           <button type="button" onClick={handleGenerate} disabled={generating || actionBusy} className="rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-            {generating ? "Generating draft..." : currentResponse ? "Generate another draft" : "Generate resolution"}
+            {generating
+            ? "Generating draft..."
+            : customerRejected
+              ? "Generate new AI resolution"
+              : currentResponse
+                ? "Generate another draft"
+                : "Generate resolution"}
           </button>
         )}
-        {currentResponse?.status === "DRAFT" && (
+        {canReviewDraft && (
           <>
             <button type="button" onClick={handleAccept} disabled={actionBusy || generating} className="rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">{actionBusy ? "Saving..." : "Accept & send"}</button>
             <button type="button" onClick={() => setShowEditDialog(true)} disabled={actionBusy || generating} className="rounded-2xl border border-blue-300 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30">Edit & send</button>
@@ -328,7 +350,7 @@ export default function ResolutionPanel({
         )}
       </div>
 
-      {showRejectForm && currentResponse?.status === "DRAFT" && (
+      {showRejectForm && canReviewDraft && (
         <div className="mt-4 rounded-2xl border border-red-200 bg-white p-4 dark:border-red-900/70 dark:bg-gray-950/50">
           <label htmlFor="reject-resolution-reason" className="block text-sm font-semibold text-slate-800 dark:text-gray-200">Why is this draft being rejected?</label>
           <textarea id="reject-resolution-reason" value={rejectReason} onChange={(event) => setRejectReason(event.target.value)} rows={3} disabled={actionBusy} className="mt-2 w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-red-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white" />
@@ -388,7 +410,7 @@ export default function ResolutionPanel({
         </div>
       </div>
 
-      {showEditDialog && currentResponse?.status === "DRAFT" && (
+      {showEditDialog && canReviewDraft && (
         <EditAndSendDialog response={currentResponse} busy={actionBusy} onCancel={() => setShowEditDialog(false)} onSubmit={handleEditAndSend} />
       )}
     </section>
