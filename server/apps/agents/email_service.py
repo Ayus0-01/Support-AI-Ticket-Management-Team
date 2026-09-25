@@ -807,6 +807,9 @@ def build_ticket_created_email_content(
     description = ticket.get("description", "N/A")
     category = ticket.get("category", "N/A")
     priority = ticket.get("priority", "N/A")
+
+    if isinstance(priority, dict):
+        priority = priority.get("value", "N/A")
     status_value = ticket.get("status", "Open")
 
     email_subject = f"[Ticket Created] #{ticket_id}: {subject_line}"
@@ -912,7 +915,166 @@ def send_ticket_created_email(
 
     return result
 
+def build_ticket_assigned_email_content(
+    ticket: Dict[str, Any],
+    agent_username: str,
+) -> Dict[str, str]:
+    """
+    Builds an email notification for the Support Agent
+    when a ticket is assigned to them.
+    """
 
+    ticket_id = (
+        ticket.get("ticket_id")
+        or ticket.get("ticket_number")
+        or "N/A"
+    )
+
+    subject_line = ticket.get(
+        "subject",
+        "Support Ticket",
+    )
+
+    description = ticket.get(
+        "description",
+        "N/A",
+    )
+
+    category = ticket.get(
+        "category",
+        "Pending classification",
+    )
+
+    priority = ticket.get(
+        "priority",
+        "Pending classification",
+    )
+
+    status_value = ticket.get(
+        "status",
+        "Open",
+    )
+
+    email_subject = (
+        f"[Ticket Assigned] #{ticket_id}: {subject_line}"
+    )
+
+    text_body = (
+        "SUPPORT TICKET ASSIGNED\n"
+        "----------------------------------------\n"
+        f"Ticket ID: {ticket_id}\n"
+        f"Subject: {subject_line}\n"
+        f"Assigned Agent: {agent_username}\n"
+        f"Category: {category}\n"
+        f"Priority: {priority}\n"
+        f"Status: {status_value}\n\n"
+        "DESCRIPTION:\n"
+        f"{description}\n\n"
+        "This ticket has been assigned to you. "
+        "Please review and handle the ticket from your Agent dashboard."
+    )
+
+    html_body = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+
+        <h2 style="color: #0275d8;">
+            Support Ticket Assigned
+        </h2>
+
+        <p>
+            A support ticket has been assigned to you.
+        </p>
+
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Ticket ID:</td>
+            <td style="padding: 6px;">{ticket_id}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Subject:</td>
+            <td style="padding: 6px;">{subject_line}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Assigned Agent:</td>
+            <td style="padding: 6px;">{agent_username}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Category:</td>
+            <td style="padding: 6px;">{category}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Priority:</td>
+            <td style="padding: 6px;">{priority}</td>
+          </tr>
+
+          <tr>
+            <td style="padding: 6px; font-weight: bold;">Status:</td>
+            <td style="padding: 6px;">{status_value}</td>
+          </tr>
+        </table>
+
+        <h3>Description</h3>
+
+        <p style="
+            background: #f8f9fa;
+            padding: 10px;
+            border-left: 4px solid #0275d8;
+        ">
+            {description}
+        </p>
+
+        <p>
+            This ticket has been assigned to you.
+            Please review and handle it from your Agent dashboard.
+        </p>
+
+      </body>
+    </html>
+    """
+
+    return {
+        "subject": email_subject,
+        "text_body": text_body,
+        "html_body": html_body,
+    }
+
+
+def send_ticket_assigned_email(
+    ticket: Dict[str, Any],
+    agent_username: str,
+    recipient_email: Optional[str] = None,
+    email_config_override: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Sends an email notification to the Support Agent
+    when a ticket is assigned to them.
+    """
+
+    content = build_ticket_assigned_email_content(
+        ticket=ticket,
+        agent_username=agent_username,
+    )
+
+    result = _send_generic_email(
+        subject=content["subject"],
+        text_body=content["text_body"],
+        html_body=content["html_body"],
+        recipient_email=recipient_email,
+        email_config_override=email_config_override,
+    )
+
+    save_email_log(
+        ticket=ticket,
+        email_type="TICKET_ASSIGNED",
+        result=result,
+    )
+
+    return result
 def build_resolved_email_content(
     ticket: Dict[str, Any],
     resolution: Optional[Dict[str, Any]] = None,

@@ -19,16 +19,17 @@ REQUEST_TIMEOUT = config("OLLAMA_TIMEOUT", default=120, cast=int)  # Timeout in 
 
 
 def _call_llm(prompt: str, timeout: int = REQUEST_TIMEOUT) -> Optional[str]:
-    """
-    Calls the local LLM via Ollama API returning raw string response.
-    Returns None if service is unavailable or times out.
-    """
     payload = json.dumps({
         "model": MODEL_NAME,
         "prompt": prompt,
         "stream": False,
         "think": False,
         "format": "json",
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0.1,
+            "num_predict": 384,
+        },
     }).encode("utf-8")
 
 

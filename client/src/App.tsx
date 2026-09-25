@@ -18,7 +18,6 @@ const NAV_PAGES: NavPage[] = [
   'My queue',
   'My Tickets',
   'Create Ticket',
-  'AI Assistant',
   'Reports',
   'Knowledge Base',
   'Users',

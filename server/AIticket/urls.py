@@ -50,6 +50,11 @@ urlpatterns = [
         include("apps.agents.jira_urls")
     ),
 
+    path(
+    "api/notifications/",
+    include("apps.notifications.urls"),
+    ),
+
 
 
 ]

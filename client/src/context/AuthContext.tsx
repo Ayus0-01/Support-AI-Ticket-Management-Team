@@ -119,22 +119,114 @@ const AuthContext = createContext<AuthContextType>({
   can: () => false,
 
   signIn: async (
-    _username: string,
-    _password: string
-  ): Promise<{ success: boolean; message?: string }> => {
-    return { success: false };
-  },
+    username: string,
+    password: string
+): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const response = await api.post("/api/auth/login/", {
+      username,
+      password,
+    });
+
+    const data = response.data;
+
+    localStorage.setItem("access", data.access);
+    localStorage.setItem("refresh", data.refresh);
+
+    const meResponse = await api.get("/api/auth/me/");
+    const meData = meResponse.data;
+
+    setUser({
+      name: meData.username,
+      username: meData.username,
+      email: meData.email,
+      mobile: meData.mobile,
+      role: meData.role,
+      avatar: meData.username.charAt(0).toUpperCase(),
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Login error:", error);
+
+    const message =
+      error?.response?.data?.message ||
+      error?.response?.data?.detail ||
+      "Invalid email or password.";
+
+    return {
+      success: false,
+      message,
+    };
+  }
+},
 
   signOut: () => {},
 
   register: async (
-  _username: string,
-  _email: string,
-  _password: string,
-  _mobile: string
+  username: string,
+  email: string,
+  password: string,
+  mobile: string
 ): Promise<{ success: boolean; message?: string }> => {
-  return { success: false };
+  try {
+    const response = await api.post("/api/auth/register/", {
+      username,
+      email,
+      password,
+      mobile,
+    });
+
+    const data = response.data;
+
+    // Save JWT tokens returned by registration
+    localStorage.setItem("access", data.access);
+    localStorage.setItem("refresh", data.refresh);
+
+    // Get newly registered user's information
+    const meResponse = await api.get("/api/auth/me/");
+    const meData = meResponse.data;
+
+    setUser({
+      name: meData.username,
+      username: meData.username,
+      email: meData.email,
+      mobile: meData.mobile,
+      role: meData.role,
+      avatar: meData.username.charAt(0).toUpperCase(),
+    });
+
+    return {
+      success: true,
+    };
+  } catch (error: any) {
+    console.error("Registration error:", error);
+
+    const data = error?.response?.data;
+
+    let message = "Registration failed. Please try again.";
+
+    if (typeof data?.message === "string") {
+      message = data.message;
+    } else if (typeof data?.detail === "string") {
+      message = data.detail;
+    } else if (data && typeof data === "object") {
+      const firstError = Object.values(data)[0];
+
+      if (Array.isArray(firstError)) {
+        message = String(firstError[0]);
+      } else if (typeof firstError === "string") {
+        message = firstError;
+      }
+    }
+
+    return {
+      success: false,
+      message,
+    };
+  }
 },
+  
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {

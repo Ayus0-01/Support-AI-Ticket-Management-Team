@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTheme } from '@/context/ThemeContext';
+import {
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from '../services/notificationService';
 import { 
   useAuth,
   Capability,
@@ -38,7 +43,7 @@ import type { ManagedUser } from "../services/userManagementService";
 
 import {
   Bot, Sun, Moon, LayoutDashboard, Ticket, PlusCircle, Sparkles, BarChart3,
-  BookOpen, Users, Settings, LogOut, Search, Bell, HelpCircle, MessageSquare,
+  BookOpen, Users, Settings, LogOut, Search, Bell, HelpCircle,
   Send, ChevronRight, Tag, Menu,
   AlertCircle, Zap, ShieldCheck, RefreshCw, UserPlus, Clock, AlertTriangle, UserCheck,
 } from 'lucide-react';
@@ -53,7 +58,7 @@ interface DashboardProps {
   initialPage?: NavPage;
 }
 
-export type NavPage = 'Dashboard' | 'All Tickets' | 'Ticket Queue' | 'My queue' | 'My Tickets' | 'Create Ticket' | 'Agent Assignment' | 'Escalations' | 'SLA Management' | 'Agent Performance' | 'AI Performance' | 'Reports' | 'Knowledge Base' | 'Notifications' | 'Profile' | 'Users' | 'Settings' | 'Taxonomy' | 'SLA policies' | 'AI Assistant';
+export type NavPage = 'Dashboard' | 'All Tickets' | 'Ticket Queue' | 'My queue' | 'My Tickets' | 'Create Ticket' | 'Agent Assignment' | 'Escalations' | 'SLA Management' | 'Agent Performance' | 'AI Performance' | 'Reports' | 'Knowledge Base' | 'Notifications' | 'Profile' | 'Users' | 'Settings' | 'Taxonomy' | 'SLA policies';
 
 
 const AI_QUICK_ACTIONS = ['Summarize tickets', 'Show unresolved tickets', 'Draft reply', 'Escalate ticket'];
@@ -211,11 +216,6 @@ const sidebarGroups: {
 
     items: [
       {
-        name: 'AI Assistant',
-        icon: Sparkles,
-      },
-
-      {
         name: 'Reports',
         icon: BarChart3,
         capability: 'VIEW_REPORTS',
@@ -276,7 +276,6 @@ const managerSidebarGroups: {
       { name: 'Notifications', icon: Bell },
       { name: 'Profile', icon: Users },
       { name: 'Knowledge Base', icon: BookOpen },
-      { name: 'AI Assistant', icon: Sparkles },
     ],
   },
 ];
@@ -861,6 +860,8 @@ interface TicketClassificationMeta {
                     </div>
                     <ResolutionPanel
                       ticketId={selectedTicketId}
+                       ticketStatus={detailTicket?.status}
+                      resolutionStatus={detailTicket?.resolution_status}
                       onResponseChanged={async () => {
                         try {
                           await refreshQueueTicket();
@@ -1076,21 +1077,15 @@ interface TicketClassificationMeta {
             {openCount} open · {inProgressCount} in progress · {resolvedCount} resolved
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <button onClick={() => { searchRef.current?.focus(); }} title="My tickets" className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold bg-slate-50 hover:bg-slate-100 dark:bg-gray-800 dark:hover:bg-gray-700">
-              <Ticket className="w-4 h-4" />
-              <span>My tickets</span>
-            </button>
-            <button onClick={onRaise} title="Raise ticket" className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700">
-              <PlusCircle className="w-4 h-4" />
-              <span>Raise ticket</span>
-            </button>
-            <button onClick={onOpenKB} title="Self help" className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold border bg-white hover:bg-slate-50">
-              <BookOpen className="w-4 h-4" />
-              <span>Self help</span>
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+  <button
+    onClick={onOpenKB}
+    title="Self help"
+    className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold border bg-white hover:bg-slate-50"
+  >
+    <BookOpen className="w-4 h-4" />
+    <span>Self help</span>
+  </button>
           <button
             type="button"
             onClick={exportFilteredTickets}
@@ -1209,15 +1204,46 @@ interface TicketClassificationMeta {
 )}
           </div>
         </div>
-        <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>Showing {filteredTickets.length === 0 ? 0 : (safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filteredTickets.length)} of {filteredTickets.length}</p>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setCurrentPage(page => Math.max(1, page - 1))} disabled={safePage <= 1} className="rounded-2xl border border-slate-200 bg-transparent px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
-            <button onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))} disabled={safePage >= totalPages} className="rounded-2xl border border-slate-200 bg-transparent px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
-          </div>
+        <div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+    disabled={safePage <= 1}
+    aria-label="Previous page"
+    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-35 ${
+      isDark
+        ? 'border-gray-700 bg-gray-900 text-gray-200 hover:bg-gray-800'
+        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+    }`}
+  >
+    ←
+  </button>
+
+  <span
+    className={`min-w-[90px] text-center text-sm font-semibold ${
+      isDark ? 'text-gray-300' : 'text-slate-600'
+    }`}
+  >
+    Page {safePage} of {totalPages}
+  </span>
+
+  <button
+    type="button"
+    onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+    disabled={safePage >= totalPages}
+    aria-label="Next page"
+    className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-35 ${
+      isDark
+        ? 'border-gray-700 bg-gray-900 text-gray-200 hover:bg-gray-800'
+        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+    }`}
+  >
+    →
+  </button>
+</div>
         </div>
       </div>
-    </div>
+  
   );
 }
 
@@ -2862,43 +2888,549 @@ function AIPerformancePage({ isDark }: { isDark: boolean }) {
   );
 }
 
-function NotificationsPage({ isDark }: { isDark: boolean }) {
-  const notifications = [
-    { title: 'SLA Risk Alert', desc: 'Ticket IT-2026-000042 (VPN Connection Failure) is within 15 minutes of SLA breach.', time: '5m ago', type: 'risk' },
-    { title: 'Agent Overload Warning', desc: 'Agent A has reached 5 active tickets while Agent C has 0 active tickets.', time: '12m ago', type: 'workload' },
-    { title: 'New Escalation', desc: 'Customer marked Ticket IT-2026-000038 as Work Blocked (High Severity).', time: '25m ago', type: 'escalation' },
-    { title: 'Classification Override Recorded', desc: 'Agent B updated ticket category from Network to Security.', time: '1h ago', type: 'info' },
-  ];
+function NotificationsPage({
+  isDark,
+  role,
+}: {
+  isDark: boolean;
+  role?: string;
+}) {
+  const [notifications, setNotifications] = useState<
+    Array<{
+      _id: string;
+      title: string;
+      message: string;
+      type: string;
+      ticket_id?: string | null;
+      is_read: boolean;
+      created_at: string;
+    }>
+  >([]);
+
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+
+  const pageTitle =
+    role === 'User'
+      ? 'My Notifications'
+      : role === 'Agent'
+        ? 'Agent Notifications'
+        : role === 'Admin'
+          ? 'System Notifications'
+          : 'Manager Notifications & System Alerts';
+
+  const pageDescription =
+    role === 'User'
+      ? 'Updates about your tickets and support requests.'
+      : role === 'Agent'
+        ? 'Updates about assigned tickets, customers, and SLA activity.'
+        : role === 'Admin'
+          ? 'Important system and operational activity.'
+          : 'Events regarding SLA risk, agent workload, and customer escalations.';
+
+  const loadNotifications = async () => {
+    try {
+      setLoading(true);
+
+      const data = await getNotifications();
+
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unread_count || 0);
+    } catch (error) {
+      console.error(
+        'Failed to load notifications:',
+        error
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const handleMarkRead = async (
+    notificationId: string,
+    isRead: boolean
+  ) => {
+    if (isRead) {
+      return;
+    }
+
+    try {
+      await markNotificationRead(notificationId);
+
+      setNotifications((current) =>
+        current.map((notification) =>
+          notification._id === notificationId
+            ? {
+                ...notification,
+                is_read: true,
+              }
+            : notification
+        )
+      );
+
+      setUnreadCount((current) =>
+        Math.max(0, current - 1)
+      );
+    } catch (error) {
+      console.error(
+        'Failed to mark notification as read:',
+        error
+      );
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0) {
+      return;
+    }
+
+    try {
+      setMarkingAllRead(true);
+
+      await markAllNotificationsRead();
+
+      setNotifications((current) =>
+        current.map((notification) => ({
+          ...notification,
+          is_read: true,
+        }))
+      );
+
+      setUnreadCount(0);
+    } catch (error) {
+      console.error(
+        'Failed to mark all notifications as read:',
+        error
+      );
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
+  const getNotificationTime = (
+    createdAt: string
+  ) => {
+    if (!createdAt) {
+      return '';
+    }
+
+    const date = new Date(createdAt);
+
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    return date.toLocaleString();
+  };
+
+  const getNotificationType = (
+    type: string
+  ) => {
+    const normalizedType =
+      type?.toLowerCase();
+
+    if (
+      normalizedType === 'error' ||
+      normalizedType === 'risk'
+    ) {
+      return 'risk';
+    }
+
+    if (
+      normalizedType === 'warning' ||
+      normalizedType === 'workload'
+    ) {
+      return 'workload';
+    }
+
+    if (
+      normalizedType === 'escalation'
+    ) {
+      return 'escalation';
+    }
+
+    return 'info';
+  };
 
   return (
     <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2
+            className={`text-2xl font-bold ${
+              isDark
+                ? 'text-white'
+                : 'text-gray-900'
+            }`}
+          >
+            {pageTitle}
+          </h2>
+
+          <p
+            className={`mt-1 text-sm ${
+              isDark
+                ? 'text-gray-400'
+                : 'text-gray-500'
+            }`}
+          >
+            {pageDescription}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleMarkAllRead}
+          disabled={
+            unreadCount === 0 ||
+            markingAllRead
+          }
+          className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+            unreadCount === 0 ||
+            markingAllRead
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
+          }`}
+        >
+          {markingAllRead
+            ? 'Marking...'
+            : 'Mark all as read'}
+        </button>
+      </div>
+
+      {unreadCount > 0 && (
+        <div
+          className={`rounded-xl px-4 py-3 text-sm ${
+            isDark
+              ? 'bg-blue-950/40 text-blue-300'
+              : 'bg-blue-50 text-blue-700'
+          }`}
+        >
+          You have{' '}
+          <span className="font-bold">
+            {unreadCount}
+          </span>{' '}
+          unread notification
+          {unreadCount !== 1 ? 's' : ''}.
+        </div>
+      )}
+
+      {loading ? (
+        <div
+          className={`p-8 rounded-2xl border text-center ${
+            isDark
+              ? 'bg-gray-900 border-gray-800 text-gray-400'
+              : 'bg-white border-gray-200 text-gray-500'
+          }`}
+        >
+          Loading notifications...
+        </div>
+      ) : notifications.length === 0 ? (
+        <div
+          className={`p-8 rounded-2xl border text-center ${
+            isDark
+              ? 'bg-gray-900 border-gray-800 text-gray-400'
+              : 'bg-white border-gray-200 text-gray-500'
+          }`}
+        >
+          No notifications yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {notifications.map(
+            (notification) => {
+              const notificationType =
+                getNotificationType(
+                  notification.type
+                );
+
+              return (
+                <button
+                  key={notification._id}
+                  type="button"
+                  onClick={() =>
+                    handleMarkRead(
+                      notification._id,
+                      notification.is_read
+                    )
+                  }
+                  className={`w-full text-left p-4 rounded-2xl border flex items-start gap-4 transition ${
+                    isDark
+                      ? 'bg-gray-900 border-gray-800 hover:border-gray-700'
+                      : 'bg-white border-gray-200 hover:border-blue-200'
+                  } ${
+                    !notification.is_read
+                      ? isDark
+                        ? 'ring-1 ring-blue-900/50'
+                        : 'ring-1 ring-blue-100'
+                      : ''
+                  }`}
+                >
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      notificationType === 'risk'
+                        ? 'bg-red-100 text-red-600'
+                        : notificationType === 'workload'
+                          ? 'bg-amber-100 text-amber-600'
+                          : notificationType === 'escalation'
+                            ? 'bg-purple-100 text-purple-600'
+                            : 'bg-blue-100 text-blue-600'
+                    }`}
+                  >
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <p
+                        className={`font-bold text-sm ${
+                          isDark
+                            ? 'text-white'
+                            : 'text-gray-900'
+                        }`}
+                      >
+                        {notification.title}
+                      </p>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!notification.is_read && (
+                          <span className="w-2 h-2 rounded-full bg-blue-600" />
+                        )}
+
+                        <span className="text-xs text-gray-500">
+                          {getNotificationTime(
+                            notification.created_at
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p
+                      className={`mt-1 text-xs leading-relaxed ${
+                        isDark
+                          ? 'text-gray-400'
+                          : 'text-gray-600'
+                      }`}
+                    >
+                      {notification.message}
+                    </p>
+
+                    {notification.ticket_id && (
+                      <p
+                        className={`mt-2 text-xs ${
+                          isDark
+                            ? 'text-gray-500'
+                            : 'text-gray-400'
+                        }`}
+                      >
+                        Ticket: {notification.ticket_id}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              );
+            }
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+function ProfilePage({ isDark }: { isDark: boolean }) {
+  const { user } = useAuth();
+
+  const displayName =
+    user?.name ||
+    user?.username ||
+    'User';
+
+  const avatar =
+    user?.avatar ||
+    displayName.charAt(0).toUpperCase();
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      {/* Page heading */}
       <div>
-        <h2 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Manager Notifications & System Alerts</h2>
-        <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-          Real-time events regarding SLA risk, agent overload, and customer escalations.
+        <h2
+          className={`text-2xl font-bold ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}
+        >
+          My Profile
+        </h2>
+
+        <p
+          className={`mt-1 text-sm ${
+            isDark ? 'text-gray-400' : 'text-gray-500'
+          }`}
+        >
+          View your account information and profile details.
         </p>
       </div>
 
-      <div className="space-y-3">
-        {notifications.map((n, i) => (
-          <div key={i} className={`p-4 rounded-2xl border flex items-start gap-4 ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${n.type === 'risk' ? 'bg-red-100 text-red-600' : n.type === 'workload' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
-              <AlertCircle className="w-5 h-5" />
+      {/* Profile card */}
+      <div
+        className={`overflow-hidden rounded-3xl border ${
+          isDark
+            ? 'border-gray-800 bg-gray-900'
+            : 'border-gray-200 bg-white'
+        }`}
+      >
+        {/* Profile header */}
+        <div
+          className={`p-6 sm:p-8 ${
+            isDark
+              ? 'bg-gradient-to-r from-gray-900 to-gray-950'
+              : 'bg-gradient-to-r from-blue-50 to-slate-50'
+          }`}
+        >
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+            {/* Avatar */}
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-blue-600 text-3xl font-bold text-white shadow-lg">
+              {avatar}
             </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <p className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{n.title}</p>
-                <span className="text-xs text-gray-500">{n.time}</span>
+
+            {/* Name and email */}
+            <div className="min-w-0">
+              <h3
+                className={`text-2xl font-bold ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}
+              >
+                {displayName}
+              </h3>
+
+              <p
+                className={`mt-1 text-sm ${
+                  isDark ? 'text-gray-400' : 'text-gray-500'
+                }`}
+              >
+                {user?.email || 'No email available'}
+              </p>
+
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Active Account
               </div>
-              <p className={`mt-1 text-xs leading-relaxed ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{n.desc}</p>
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Account information */}
+        <div className="p-6 sm:p-8">
+          <h3
+            className={`text-sm font-bold uppercase tracking-[0.18em] ${
+              isDark ? 'text-gray-400' : 'text-gray-500'
+            }`}
+          >
+            Account Information
+          </h3>
+
+          <div className="mt-5 divide-y divide-gray-200 dark:divide-gray-800">
+
+            {/* Name */}
+            <div className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Name
+              </span>
+
+              <span
+                className={`text-sm font-semibold ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}
+              >
+                {displayName}
+              </span>
+            </div>
+
+            {/* Username */}
+            <div className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Username
+              </span>
+
+              <span
+                className={`text-sm font-semibold ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}
+              >
+                {user?.username || 'Not available'}
+              </span>
+            </div>
+
+            {/* Email */}
+            <div className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Email Address
+              </span>
+
+              <span
+                className={`break-all text-sm font-semibold ${
+                  isDark ? 'text-white' : 'text-gray-900'
+                }`}
+              >
+                {user?.email || 'Not available'}
+              </span>
+            </div>
+
+            {/* Role */}
+            <div className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Role
+              </span>
+
+              <span
+                className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
+                  isDark
+                    ? 'bg-blue-500/10 text-blue-400'
+                    : 'bg-blue-50 text-blue-700'
+                }`}
+              >
+                {user?.role || 'User'}
+              </span>
+            </div>
+
+            {/* Account status */}
+            <div className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Account Status
+              </span>
+
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Active
+              </span>
+            </div>
+
+          </div>
+        </div>
+
+        {/* Footer information */}
+        <div
+          className={`border-t p-5 ${
+            isDark
+              ? 'border-gray-800 bg-gray-950'
+              : 'border-gray-200 bg-slate-50'
+          }`}
+        >
+          <p
+            className={`text-sm ${
+              isDark ? 'text-gray-400' : 'text-gray-600'
+            }`}
+          >
+            Your profile information is associated with your SupportPilot
+            account and role.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
-
 function ManagerProfilePage({ isDark }: { isDark: boolean }) {
   const { user } = useAuth();
   return (
@@ -2942,11 +3474,12 @@ export default function Dashboard({ onNavigate, initialPage }: DashboardProps) {
   const [activePage, setActivePage] = useState<NavPage>(initialPage ?? 'Dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [quickInfo, setQuickInfo] = useState<'help' | 'messages' | 'alerts' | null>(null);
+  
   const [aiChat, setAiChat] = useState<{ role: 'user' | 'ai'; text: string }[]>([
     { role: 'ai', text: `Hi ${user?.name?.split(' ')[0] ?? 'there'}! I am your AI helpdesk assistant. Click on a fast action chip below or ask me anything to get started.` },
   ]);
   const [aiInput, setAiInput] = useState('');
+  const [topSearchTerm, setTopSearchTerm] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [knowledgeArticleId, setKnowledgeArticleId] = useState<string | null>(null);
   const [homeTickets, setHomeTickets] = useState<ApiTicket[]>([]);
@@ -2999,16 +3532,36 @@ useEffect(() => {
   }, [activePage, can]);
 
   useEffect(() => {
-    if (initialPage) {
-      if (initialPage === 'Create Ticket' && !can('CREATE_TICKET')) {
-        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
-      } else if (initialPage === 'My Tickets' && !can('VIEW_OWN_TICKETS')) {
-        setActivePage(can('VIEW_AGENT_QUEUE') ? 'My queue' : 'Dashboard');
-      } else {
-        setActivePage(initialPage);
-      }
-    }
-  }, [initialPage, can]);
+  if (!initialPage) {
+    return;
+  }
+
+  if (
+    initialPage === 'Create Ticket' &&
+    !can('CREATE_TICKET')
+  ) {
+    setActivePage(
+      can('VIEW_AGENT_QUEUE')
+        ? 'My queue'
+        : 'Dashboard'
+    );
+    return;
+  }
+
+  if (
+    initialPage === 'My Tickets' &&
+    !can('VIEW_OWN_TICKETS')
+  ) {
+    setActivePage(
+      can('VIEW_AGENT_QUEUE')
+        ? 'My queue'
+        : 'Dashboard'
+    );
+    return;
+  }
+
+  setActivePage(initialPage);
+}, [initialPage]);
 
   // Compute sidebar priority counts from the live dashboard dataset.
   const priorityCounts = homeTickets.reduce((acc: Record<string, number>, ticket) => {
@@ -3029,7 +3582,48 @@ useEffect(() => {
   const handleOpenTicket = (ticketId: string) => {
     setSelectedTicketId(ticketId);
   };
+  const getTopSearchResults = () => {
+    const term = topSearchTerm.trim().toLowerCase();
 
+  if (!term) {
+    return [];
+  }
+
+  return homeTickets.filter(ticket => {
+    const searchableValues = [
+      ticket.ticket_id,
+      ticket.subject,
+      ticket.description,
+      ticket.requester?.username,
+      ticket.requester?.email,
+      ticket.assignee,
+    ];
+
+    return searchableValues.some(value =>
+      String(value || "")
+        .toLowerCase()
+        .includes(term)
+    );
+  });
+};
+
+const openTopSearchTicket = (ticketId: string) => {
+  setSelectedTicketId(ticketId);
+  setTopSearchTerm("");
+
+  if (user?.role === "Agent") {
+    setActivePage("My queue");
+  } else if (
+    user?.role === "Manager" ||
+    user?.role === "Support Manager"
+  ) {
+    setActivePage("Ticket Queue");
+  } else if (user?.role === "Admin") {
+    setActivePage("All Tickets");
+  } else {
+    setActivePage("My Tickets");
+  }
+};
   const handleBackToList = () => {
     setSelectedTicketId(null);
   };
@@ -3052,24 +3646,7 @@ useEffect(() => {
     setTimeout(() => setAiChat(c => [...c, { role: 'ai', text: "Got it! I've found 3 unresolved High-priority tickets. Shall I draft replies for each one and tag them for follow-up?" }]), 700);
   };
 
-  const quickInfoContent = {
-    help: {
-      title: 'Help Center',
-      text: 'Browse onboarding guides, escalation steps, and SLA policies for your support team.',
-    },
-    messages: {
-      title: 'Messages',
-      text: 'Customer replies are waiting for review. Use AI to draft responses and prioritize follow-ups.',
-    },
-    alerts: {
-      title: 'Alerts',
-      text: 'Three urgent tickets need attention and two SLA thresholds are approaching the deadline.',
-    },
-  };
-
-  const handleQuickAction = (type: 'help' | 'messages' | 'alerts') => {
-    setQuickInfo(current => (current === type ? null : type));
-  };
+  
 
   const handleSignOut = () => { signOut(); onNavigate('home'); };
 
@@ -3096,9 +3673,14 @@ useEffect(() => {
       case 'AI Performance':
         return <AIPerformancePage isDark={isDark} />;
       case 'Notifications':
-        return <NotificationsPage isDark={isDark} />;
+        return (
+          <NotificationsPage
+          isDark={isDark}
+          role={user?.role}
+    />
+  );
       case 'Profile':
-        return <ManagerProfilePage isDark={isDark} />;
+        return <ProfilePage isDark={isDark} />;
       case 'Create Ticket': return <CreateTicketPage isDark={isDark} onOpenKnowledgeArticle={openKnowledgeArticle} onOpenTicket={(ticketId) => { setSelectedTicketId(ticketId); setActivePage('My Tickets'); }} onCreated={(createdTicket) => {
         if (createdTicket) {
           setHomeTickets(current => [createdTicket, ...current.filter(ticket => ticket.ticket_id !== createdTicket.ticket_id)]);
@@ -3106,7 +3688,6 @@ useEffect(() => {
         setActivePage('My Tickets');
         setSelectedTicketId(null);
       }} />;
-      case 'AI Assistant':  return <AIAssistantPage isDark={isDark} chat={aiChat} setChat={setAiChat} />;
       case 'Reports':       return <ReportsPage isDark={isDark} />;
       case 'Knowledge Base':return <KnowledgeBaseWorkspace isDark={isDark} initialArticleId={knowledgeArticleId} />;
       case 'Users':         return <UsersPage isDark={isDark} />;
@@ -3278,12 +3859,92 @@ useEffect(() => {
             )}
           </div>
 
-          {/* Search */}
-          <div className={`hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl flex-1 max-w-sm ml-4 ${isDark ? 'bg-gray-900' : 'bg-gray-100'}`}>
-            <Search className={`w-4 h-4 shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-            <input placeholder="Search tickets, users..." className={`bg-transparent outline-none text-sm flex-1 ${isDark ? 'text-white placeholder-gray-600' : 'text-gray-900 placeholder-gray-400'}`} />
-          </div>
+          {/* Global ticket search */}
+<div className="relative hidden sm:flex flex-1 max-w-sm ml-4">
+  <div
+    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl ${
+      isDark ? 'bg-gray-900' : 'bg-gray-100'
+    }`}
+  >
+    <Search
+      className={`w-4 h-4 shrink-0 ${
+        isDark ? 'text-gray-500' : 'text-gray-400'
+      }`}
+    />
 
+    <input
+      type="search"
+      value={topSearchTerm}
+      onChange={event => setTopSearchTerm(event.target.value)}
+      placeholder="Search tickets, users..."
+      aria-label="Search tickets and users"
+      className={`bg-transparent outline-none text-sm flex-1 ${
+        isDark
+          ? 'text-white placeholder-gray-600'
+          : 'text-gray-900 placeholder-gray-400'
+      }`}
+    />
+  </div>
+
+  {topSearchTerm.trim() && (
+    <div
+      className={`absolute top-12 left-0 w-full max-h-96 overflow-y-auto rounded-xl border shadow-xl z-50 ${
+        isDark
+          ? 'bg-gray-900 border-gray-700'
+          : 'bg-white border-gray-200'
+      }`}
+    >
+      {getTopSearchResults().length > 0 ? (
+        getTopSearchResults().map(ticket => (
+          <button
+            key={ticket.ticket_id}
+            type="button"
+            onClick={() => openTopSearchTicket(ticket.ticket_id)}
+            className={`w-full text-left px-4 py-3 border-b last:border-b-0 transition ${
+              isDark
+                ? 'border-gray-800 hover:bg-gray-800'
+                : 'border-gray-100 hover:bg-gray-50'
+            }`}
+          >
+            <div
+              className={`text-sm font-semibold ${
+                isDark ? 'text-white' : 'text-gray-900'
+              }`}
+            >
+              {ticket.ticket_id}
+            </div>
+
+            <div
+              className={`mt-1 text-sm truncate ${
+                isDark ? 'text-gray-300' : 'text-gray-700'
+              }`}
+            >
+              {ticket.subject || 'No subject'}
+            </div>
+
+            <div
+              className={`mt-1 text-xs ${
+                isDark ? 'text-gray-500' : 'text-gray-500'
+              }`}
+            >
+              {ticket.requester?.username || 'Unknown requester'}
+              {' · '}
+              {ticket.status || 'Unknown status'}
+            </div>
+          </button>
+        ))
+      ) : (
+        <div
+          className={`px-4 py-4 text-sm ${
+            isDark ? 'text-gray-400' : 'text-gray-500'
+          }`}
+        >
+          No matching tickets found.
+        </div>
+      )}
+    </div>
+  )}
+</div>
           <div className="flex items-center gap-1.5 ml-auto">
             <button onClick={toggleTheme} className={`p-2 rounded-lg transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}>
               {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -3291,48 +3952,31 @@ useEffect(() => {
 
             <div className="relative">
               <button
-                onClick={() => handleQuickAction('help')}
+                  onClick={() => {
+              
+                    setActivePage('Knowledge Base');
+                   }}
                 className={`p-2 rounded-lg transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}
               >
                 <HelpCircle className="w-4 h-4" />
               </button>
-              {quickInfo === 'help' && (
-                <div className={`absolute right-0 top-11 w-64 rounded-xl border p-3 shadow-lg z-30 ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-700'}`}>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">{quickInfoContent.help.title}</p>
-                  <p className="mt-2 text-sm leading-relaxed">{quickInfoContent.help.text}</p>
-                </div>
-              )}
+              
             </div>
+
+            
 
             <div className="relative">
               <button
-                onClick={() => handleQuickAction('messages')}
-                className={`p-2 rounded-lg transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}
-              >
-                <MessageSquare className="w-4 h-4" />
-              </button>
-              {quickInfo === 'messages' && (
-                <div className={`absolute right-0 top-11 w-64 rounded-xl border p-3 shadow-lg z-30 ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-700'}`}>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">{quickInfoContent.messages.title}</p>
-                  <p className="mt-2 text-sm leading-relaxed">{quickInfoContent.messages.text}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="relative">
-              <button
-                onClick={() => handleQuickAction('alerts')}
+                onClick={() => {
+                  
+                  setActivePage('Notifications');
+                }}
                 className={`relative p-2 rounded-lg transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'}`}
               >
                 <Bell className="w-4 h-4" />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
               </button>
-              {quickInfo === 'alerts' && (
-                <div className={`absolute right-0 top-11 w-64 rounded-xl border p-3 shadow-lg z-30 ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-white border-gray-200 text-gray-700'}`}>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">{quickInfoContent.alerts.title}</p>
-                  <p className="mt-2 text-sm leading-relaxed">{quickInfoContent.alerts.text}</p>
-                </div>
-              )}
+              
             </div>
             {/* User avatar */}
             <div className="relative ml-2 pl-3 border-l border-gray-200 dark:border-gray-700">
@@ -3355,9 +3999,15 @@ useEffect(() => {
                   </div>
                   <div className="p-2 space-y-1">
                     {[
-                      { label: 'Profile', action: () => { setActivePage('Users'); setProfileOpen(false); } },
+                      { label: 'Profile', action: () => { setActivePage('Profile'); setProfileOpen(false); } },
                       { label: 'Settings', action: () => { setActivePage('Settings'); setProfileOpen(false); } },
-                      { label: 'Help', action: () => { handleQuickAction('help'); setProfileOpen(false); } },
+                      {
+                  label: 'Help',
+                     action: () => {
+                     setActivePage('Knowledge Base');
+                     setProfileOpen(false);
+  },
+},
                       { label: 'Logout', danger: true, action: () => { setProfileOpen(false); handleSignOut(); } },
                     ].map(item => (
                       <button
@@ -3452,11 +4102,8 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Main two-column */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-
                 {/* Recent Tickets table */}
-                <div className={`xl:col-span-2 rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+                <div className={`rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                   <div className={`flex items-start justify-between px-5 pt-5 pb-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-200'}`}>
                     <div>
                       <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Recent Tickets</h2>
@@ -3502,64 +4149,9 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* AI Assistant panel */}
-                <div className={`rounded-2xl border flex flex-col ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`} style={{ minHeight: 440 }}>
-                  {/* Header */}
-                  <div className={`flex items-center gap-3 px-4 pt-4 pb-3 border-b ${isDark ? 'border-gray-800' : 'border-gray-200'}`}>
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shrink-0">
-                      <Bot className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>AI Assistant</p>
-                        <span className="text-[10px] font-bold bg-blue-600 text-white px-1.5 py-0.5 rounded-full">BETA</span>
-                      </div>
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>Powered by AITicketPilot AI Agent</p>
-                    </div>
-                  </div>
-
-                  {/* Chat */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {aiChat.map((m, i) => (
-                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[88%] px-3.5 py-2.5 text-sm rounded-2xl ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : isDark ? 'bg-gray-800 text-gray-200 rounded-bl-sm' : 'bg-gray-100 text-gray-800 rounded-bl-sm'}`}>
-                          {m.text}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Quick actions */}
-                  <div className={`px-4 pb-3 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
-                    <div className="flex flex-wrap gap-2">
-                      {AI_QUICK_ACTIONS.slice(0, 2).map(a => (
-                        <button key={a} onClick={() => sendAi(a)} className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${isDark ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                          <Zap className="w-3 h-3 text-amber-500" /> {a}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Input */}
-                  <div className="p-3">
-                    <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
-                      <input
-                        value={aiInput}
-                        onChange={e => setAiInput(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && sendAi()}
-                        placeholder="Ask AI anything..."
-                        className={`flex-1 bg-transparent outline-none text-sm ${isDark ? 'text-white placeholder-gray-600' : 'text-gray-900 placeholder-gray-400'}`}
-                      />
-                      <button onClick={() => sendAi()} className="w-8 h-8 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center transition-colors shrink-0">
-                        <Send className="w-3.5 h-3.5 text-white" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Ticket Overview + Tickets by Priority */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              {user?.role !== 'User' && (
+  <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <div className={`xl:col-span-2 p-5 rounded-2xl border ${isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                   <h3 className={`text-base font-semibold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Ticket Overview <span className={`text-xs font-normal ml-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Weekly Volume</span></h3>
                   <div className="flex items-end gap-3 h-28">
@@ -3589,19 +4181,12 @@ useEffect(() => {
                 </div>
               </div>
 
-            </div>
-          )}
-        </main>
-      </div>
-
-      {/* Floating chat button */}
-      <button
-        onClick={() => setActivePage('AI Assistant')}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-xl flex items-center justify-center transition-all z-50"
-      >
-        <MessageSquare className="w-6 h-6" />
-        <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center">3</span>
-      </button>
-    </div>
-  );
+            
+         )}
+</div>
+)}
+</main>
+</div>
+</div>
+);
 }
